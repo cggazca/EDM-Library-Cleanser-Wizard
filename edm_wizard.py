@@ -1356,7 +1356,7 @@ class ColumnMappingPage(QWizardPage):
 
     def combine_sheets(self):
         """Combine sheets based on mappings and filters"""
-        prev_page = self.wizard().page(0)
+        prev_page = self.wizard().page(1)  # DataSourcePage is page 1
         excel_path = prev_page.get_excel_path()
 
         mappings = self.get_mappings()
@@ -1513,7 +1513,7 @@ class XMLGenerationPage(QWizardPage):
 
     def initializePage(self):
         """Initialize with default output path"""
-        prev_page = self.wizard().page(0)
+        prev_page = self.wizard().page(1)  # DataSourcePage is page 1
         excel_path = prev_page.get_excel_path()
 
         if excel_path:
@@ -1537,8 +1537,8 @@ class XMLGenerationPage(QWizardPage):
         try:
             import shutil
 
-            prev_page_0 = self.wizard().page(0)
-            prev_page_1 = self.wizard().page(1)
+            prev_page_0 = self.wizard().page(1)  # DataSourcePage is page 1
+            prev_page_1 = self.wizard().page(2)  # ColumnMappingPage is page 2
 
             excel_path = prev_page_0.get_excel_path()
             dataframes = prev_page_0.get_dataframes()

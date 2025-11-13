@@ -1555,11 +1555,12 @@ class XMLGenerationPage(QWizardPage):
 
     def generate_xml_from_sheets(self, dataframes, excel_path, mappings):
         """Generate XML from multiple sheets"""
-        prev_page_1 = self.wizard().page(1)
+        prev_page_1 = self.wizard().page(2)  # ColumnMappingPage is now page 2
         included_sheets = prev_page_1.get_included_sheets()
 
         all_mfg = set()
         all_mfgpn = []
+        self.combined_data = []
 
         for sheet_name, df in dataframes.items():
             # Skip sheets that are not included
@@ -1596,11 +1597,13 @@ class XMLGenerationPage(QWizardPage):
             # Collect MFG/MFGPN pairs
             df_pairs = df_filtered[['MFG', 'MFG_PN', 'Description']].dropna(subset=['MFG', 'MFG_PN'])
             for _, row in df_pairs.iterrows():
-                all_mfgpn.append({
+                data_row = {
                     'MFG': str(row['MFG']).strip(),
                     'MFG_PN': str(row['MFG_PN']).strip(),
                     'Description': str(row['Description']) if pd.notna(row['Description']) else "This is the PN description."
-                })
+                }
+                all_mfgpn.append(data_row)
+                self.combined_data.append(data_row)
 
         # Generate XML files
         self.create_xml_files(all_mfg, all_mfgpn, excel_path)
@@ -1625,15 +1628,18 @@ class XMLGenerationPage(QWizardPage):
         mfg_values = df_copy[mfg_col].dropna()
         all_mfg.update(mfg_values.astype(str).str.strip().unique())
 
-        # Collect MFG/MFGPN pairs
+        # Collect MFG/MFGPN pairs and store combined data
+        self.combined_data = []
         for _, row in df_copy.iterrows():
             if pd.notna(row[mfg_col]) and pd.notna(row[mfgpn_col]):
                 desc = row[desc_col] if desc_col and pd.notna(row[desc_col]) else "This is the PN description."
-                all_mfgpn.append({
+                data_row = {
                     'MFG': str(row[mfg_col]).strip(),
                     'MFG_PN': str(row[mfgpn_col]).strip(),
                     'Description': str(desc)
-                })
+                }
+                all_mfgpn.append(data_row)
+                self.combined_data.append(data_row)
 
         # Generate XML files
         self.create_xml_files(all_mfg, all_mfgpn, excel_path)
@@ -1785,6 +1791,981 @@ class XMLGenerationPage(QWizardPage):
         return self.xml_generated
 
 
+class PartialMatchAIThread(QThread):
+    """Background thread for AI-powered partial match suggestions"""
+    progress = pyqtSignal(str, int, int)  # message, current, total
+    finished = pyqtSignal(dict)  # part_number -> suggested_match_index
+    error = pyqtSignal(str)
+
+    def __init__(self, api_key, parts_needing_review, combined_data):
+        super().__init__()
+        self.api_key = api_key
+        self.parts_needing_review = parts_needing_review
+        self.combined_data = combined_data
+
+    def run(self):
+        try:
+            client = Anthropic(api_key=self.api_key)
+            suggestions = {}
+
+            total = len(self.parts_needing_review)
+            for idx, part in enumerate(self.parts_needing_review):
+                self.progress.emit(f"🤖 Analyzing part {idx + 1} of {total}...", idx, total)
+
+                # Get original description from combined data
+                description = self.get_description_for_part(part['PartNumber'], part['ManufacturerName'])
+
+                # Create prompt for AI
+                matches_text = "\n".join([f"{i+1}. {m}" for i, m in enumerate(part['matches'])])
+
+                prompt = f"""Analyze this electronic component and suggest the best matching part number from SupplyFrame.
+
+Original Part:
+- Part Number: {part['PartNumber']}
+- Manufacturer: {part['ManufacturerName']}
+- Description: {description if description else 'Not available'}
+
+Available Matches from SupplyFrame:
+{matches_text}
+
+Instructions:
+1. Compare the original part number with each match
+2. Consider manufacturer variations (e.g., "EPCOS" vs "TDK Electronics")
+3. Look for exact or closest part number matches
+4. If the manufacturer has been acquired, prefer the current company name
+
+Return a JSON object with:
+{{
+    "suggested_index": <0-based index of best match, or null if none are suitable>,
+    "confidence": <0-100>,
+    "reasoning": "<brief explanation>"
+}}
+
+Only return the JSON, no other text."""
+
+                try:
+                    response = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=500,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+
+                    response_text = response.content[0].text.strip()
+                    if response_text.startswith('```'):
+                        response_text = response_text.split('```')[1]
+                        if response_text.startswith('json'):
+                            response_text = response_text[4:]
+                        response_text = response_text.strip()
+
+                    result = json.loads(response_text)
+                    suggestions[part['PartNumber']] = result
+
+                except Exception as e:
+                    # If AI fails for this part, skip it
+                    continue
+
+            self.finished.emit(suggestions)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def get_description_for_part(self, part_number, mfg):
+        """Find description from combined data"""
+        for row in self.combined_data:
+            if row.get('MFG_PN') == part_number and row.get('MFG') == mfg:
+                return row.get('Description', '')
+        return ''
+
+
+class ManufacturerNormalizationAIThread(QThread):
+    """Background thread for AI-powered manufacturer normalization"""
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(dict)  # variations -> canonical_name mappings
+    error = pyqtSignal(str)
+
+    def __init__(self, api_key, all_manufacturers, supplyframe_manufacturers):
+        super().__init__()
+        self.api_key = api_key
+        self.all_manufacturers = all_manufacturers
+        self.supplyframe_manufacturers = supplyframe_manufacturers
+
+    def run(self):
+        try:
+            self.progress.emit("🤖 Analyzing manufacturer variations...")
+
+            client = Anthropic(api_key=self.api_key)
+
+            # Create prompt
+            prompt = f"""Analyze these manufacturer names and detect variations that should be normalized.
+
+Manufacturers from user data:
+{json.dumps(sorted(self.all_manufacturers), indent=2)}
+
+SupplyFrame canonical manufacturer names (prefer these):
+{json.dumps(sorted(self.supplyframe_manufacturers), indent=2)}
+
+Instructions:
+1. Identify manufacturer name variations (e.g., "TI" vs "Texas Instruments")
+2. Detect abbreviations, acquired companies, and alternate spellings
+3. Map each variation to the canonical SupplyFrame name when available
+4. For companies not in SupplyFrame, suggest the most complete/official name
+
+Return a JSON object mapping variations to canonical names:
+{{
+    "<variation>": "<canonical_name>",
+    "TI": "Texas Instruments",
+    "EPCOS": "TDK Electronics",
+    ...
+}}
+
+Only include entries that need normalization. Only return JSON, no other text."""
+
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = response.content[0].text.strip()
+            if response_text.startswith('```'):
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+
+            normalizations = json.loads(response_text)
+            self.finished.emit(normalizations)
+
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class SupplyFrameReviewPage(QWizardPage):
+    """Step 4: Review SupplyFrame matches and normalize manufacturers"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Step 4: SupplyFrame Review & Manufacturer Normalization")
+        self.setSubTitle("Review partial matches, normalize manufacturers, and regenerate XML files")
+
+        self.csv_loaded = False
+        self.search_assign_data = []
+        self.parts_needing_review = []
+        self.manufacturer_normalizations = {}
+        self.combined_data = []
+        self.api_key = None
+
+        # Main layout
+        main_layout = QVBoxLayout()
+
+        # Section 1: Load CSV
+        self.create_csv_section(main_layout)
+
+        # Section 2: Review Partial Matches
+        self.create_review_section(main_layout)
+
+        # Section 3: Manufacturer Normalization
+        self.create_normalization_section(main_layout)
+
+        # Section 4: Comparison View
+        self.create_comparison_section(main_layout)
+
+        # Section 5: Final Actions
+        self.create_actions_section(main_layout)
+
+        self.setLayout(main_layout)
+
+    def create_csv_section(self, parent_layout):
+        """Section 1: Load SearchAndAssign CSV"""
+        csv_group = QGroupBox("1. Load SearchAndAssign Results")
+        csv_layout = QVBoxLayout()
+
+        # File browser
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("CSV File:"))
+        self.csv_path_input = QLineEdit()
+        self.csv_path_input.setPlaceholderText("Select SearchAndAssign result CSV file...")
+        file_layout.addWidget(self.csv_path_input)
+
+        self.browse_csv_btn = QPushButton("Browse...")
+        self.browse_csv_btn.clicked.connect(self.browse_csv)
+        file_layout.addWidget(self.browse_csv_btn)
+
+        self.load_csv_btn = QPushButton("Load CSV")
+        self.load_csv_btn.clicked.connect(self.load_csv)
+        self.load_csv_btn.setEnabled(False)
+        file_layout.addWidget(self.load_csv_btn)
+
+        csv_layout.addLayout(file_layout)
+
+        # Summary
+        self.csv_summary = QLabel("No file loaded")
+        self.csv_summary.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px;")
+        csv_layout.addWidget(self.csv_summary)
+
+        csv_group.setLayout(csv_layout)
+        parent_layout.addWidget(csv_group)
+
+    def create_review_section(self, parent_layout):
+        """Section 2: Review Partial Matches"""
+        review_group = QGroupBox("2. Review Partial Matches")
+        review_layout = QHBoxLayout()
+
+        # Left panel: Parts list
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+
+        left_layout.addWidget(QLabel("Parts Needing Review:"))
+
+        self.parts_list = QTableWidget()
+        self.parts_list.setColumnCount(3)
+        self.parts_list.setHorizontalHeaderLabels(["Part Number", "MFG", "Status"])
+        self.parts_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.parts_list.setSelectionBehavior(QTableWidget.SelectRows)
+        self.parts_list.setSelectionMode(QTableWidget.SingleSelection)
+        self.parts_list.itemSelectionChanged.connect(self.on_part_selected)
+        left_layout.addWidget(self.parts_list)
+
+        # Bulk actions
+        bulk_layout = QHBoxLayout()
+        self.auto_select_btn = QPushButton("Auto-Select Highest Similarity")
+        self.auto_select_btn.clicked.connect(self.auto_select_highest)
+        self.auto_select_btn.setEnabled(False)
+        bulk_layout.addWidget(self.auto_select_btn)
+
+        self.ai_suggest_btn = QPushButton("🤖 AI Suggest Best Matches")
+        self.ai_suggest_btn.clicked.connect(self.ai_suggest_matches)
+        self.ai_suggest_btn.setEnabled(False)
+        bulk_layout.addWidget(self.ai_suggest_btn)
+
+        left_layout.addLayout(bulk_layout)
+
+        # Right panel: Match options
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+
+        right_layout.addWidget(QLabel("Available Matches:"))
+
+        self.matches_table = QTableWidget()
+        self.matches_table.setColumnCount(4)
+        self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Confidence"])
+        self.matches_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        right_layout.addWidget(self.matches_table)
+
+        self.none_correct_checkbox = QCheckBox("None of these are correct (keep original)")
+        right_layout.addWidget(self.none_correct_checkbox)
+
+        # Splitter
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([400, 600])
+
+        review_layout.addWidget(splitter)
+        review_group.setLayout(review_layout)
+        parent_layout.addWidget(review_group)
+
+    def create_normalization_section(self, parent_layout):
+        """Section 3: Manufacturer Normalization"""
+        norm_group = QGroupBox("3. Manufacturer Normalization")
+        norm_layout = QVBoxLayout()
+
+        # AI button
+        ai_layout = QHBoxLayout()
+        self.ai_normalize_btn = QPushButton("🤖 AI Detect Manufacturer Variations")
+        self.ai_normalize_btn.clicked.connect(self.ai_detect_normalizations)
+        self.ai_normalize_btn.setEnabled(False)
+        ai_layout.addWidget(self.ai_normalize_btn)
+
+        self.norm_status = QLabel("")
+        ai_layout.addWidget(self.norm_status)
+        ai_layout.addStretch()
+        norm_layout.addLayout(ai_layout)
+
+        # Normalization table
+        self.norm_table = QTableWidget()
+        self.norm_table.setColumnCount(4)
+        self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
+        self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        norm_layout.addWidget(self.norm_table)
+
+        norm_group.setLayout(norm_layout)
+        parent_layout.addWidget(norm_group)
+
+    def create_comparison_section(self, parent_layout):
+        """Section 4: Comparison View"""
+        comp_group = QGroupBox("4. Review Changes")
+        comp_layout = QVBoxLayout()
+
+        # Summary
+        self.comparison_summary = QLabel("Apply changes to see comparison")
+        self.comparison_summary.setStyleSheet("padding: 5px; background-color: #e3f2fd; border-radius: 3px; font-weight: bold;")
+        comp_layout.addWidget(self.comparison_summary)
+
+        # Side-by-side tables
+        tables_layout = QHBoxLayout()
+
+        # Old data
+        old_widget = QWidget()
+        old_layout = QVBoxLayout(old_widget)
+        old_layout.addWidget(QLabel("Original Data:"))
+        self.old_data_table = QTableWidget()
+        old_layout.addWidget(self.old_data_table)
+
+        # New data
+        new_widget = QWidget()
+        new_layout = QVBoxLayout(new_widget)
+        new_layout.addWidget(QLabel("Updated Data:"))
+        self.new_data_table = QTableWidget()
+        new_layout.addWidget(self.new_data_table)
+
+        # Sync scroll
+        self.old_data_table.verticalScrollBar().valueChanged.connect(
+            self.new_data_table.verticalScrollBar().setValue
+        )
+        self.new_data_table.verticalScrollBar().valueChanged.connect(
+            self.old_data_table.verticalScrollBar().setValue
+        )
+
+        tables_layout.addWidget(old_widget)
+        tables_layout.addWidget(new_widget)
+        comp_layout.addLayout(tables_layout)
+
+        comp_group.setLayout(comp_layout)
+        parent_layout.addWidget(comp_group)
+
+    def create_actions_section(self, parent_layout):
+        """Section 5: Final Actions"""
+        actions_layout = QHBoxLayout()
+
+        self.apply_changes_btn = QPushButton("Apply Changes & Generate Comparison")
+        self.apply_changes_btn.clicked.connect(self.apply_changes)
+        self.apply_changes_btn.setEnabled(False)
+        actions_layout.addWidget(self.apply_changes_btn)
+
+        self.regenerate_xml_btn = QPushButton("Regenerate XML Files")
+        self.regenerate_xml_btn.clicked.connect(self.regenerate_xml)
+        self.regenerate_xml_btn.setEnabled(False)
+        actions_layout.addWidget(self.regenerate_xml_btn)
+
+        actions_layout.addStretch()
+        parent_layout.addLayout(actions_layout)
+
+    def browse_csv(self):
+        """Browse for CSV file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select SearchAndAssign CSV",
+            "", "CSV Files (*.csv);;All Files (*.*)"
+        )
+        if file_path:
+            self.csv_path_input.setText(file_path)
+            self.load_csv_btn.setEnabled(True)
+
+    def load_csv(self):
+        """Load and parse SearchAndAssign CSV"""
+        csv_path = self.csv_path_input.text()
+        if not csv_path or not Path(csv_path).exists():
+            QMessageBox.warning(self, "File Not Found", "Please select a valid CSV file.")
+            return
+
+        try:
+            # Parse CSV
+            df = pd.read_csv(csv_path)
+
+            self.search_assign_data = []
+            self.parts_needing_review = []
+
+            exact_matches = 0
+            partial_matches = 0
+            needs_review = 0
+            no_match = 0
+
+            for _, row in df.iterrows():
+                part_num = row['PartNumber']
+                mfg = row['ManufacturerName']
+                status = row['MatchStatus']
+
+                # Collect all match columns (column 3 onwards)
+                matches = []
+                for col_idx in range(3, len(row)):
+                    if pd.notna(row.iloc[col_idx]) and row.iloc[col_idx]:
+                        matches.append(row.iloc[col_idx])
+
+                part_data = {
+                    'PartNumber': part_num,
+                    'ManufacturerName': mfg,
+                    'MatchStatus': status,
+                    'matches': matches,
+                    'selected_match': None
+                }
+
+                self.search_assign_data.append(part_data)
+
+                # Categorize
+                if status == "Found":
+                    exact_matches += 1
+                    if matches:
+                        part_data['selected_match'] = matches[0]  # Auto-select Found match
+                elif status == "Multiple" or status == "Need user review":
+                    if status == "Multiple":
+                        partial_matches += 1
+                    else:
+                        needs_review += 1
+                    self.parts_needing_review.append(part_data)
+                else:  # None
+                    no_match += 1
+
+            # Update summary
+            total = len(self.search_assign_data)
+            self.csv_summary.setText(
+                f"✓ Loaded {total} parts: {exact_matches} exact, "
+                f"{partial_matches} partial, {needs_review} need review, {no_match} no match"
+            )
+            self.csv_summary.setStyleSheet("padding: 5px; background-color: #c8e6c9; border-radius: 3px; font-weight: bold;")
+
+            # Populate parts list
+            self.populate_parts_list()
+
+            # Enable buttons
+            self.csv_loaded = True
+            self.auto_select_btn.setEnabled(len(self.parts_needing_review) > 0)
+            self.ai_suggest_btn.setEnabled(len(self.parts_needing_review) > 0)
+            self.ai_normalize_btn.setEnabled(True)
+            self.apply_changes_btn.setEnabled(True)
+
+            QMessageBox.information(self, "CSV Loaded", f"Successfully loaded {total} parts from SearchAndAssign CSV.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load CSV:\n{str(e)}")
+
+    def populate_parts_list(self):
+        """Populate the parts needing review list"""
+        self.parts_list.setRowCount(len(self.parts_needing_review))
+
+        for row_idx, part in enumerate(self.parts_needing_review):
+            self.parts_list.setItem(row_idx, 0, QTableWidgetItem(part['PartNumber']))
+            self.parts_list.setItem(row_idx, 1, QTableWidgetItem(part['ManufacturerName']))
+            self.parts_list.setItem(row_idx, 2, QTableWidgetItem(part['MatchStatus']))
+
+    def on_part_selected(self):
+        """Handle part selection - show matches"""
+        selected_rows = self.parts_list.selectedIndexes()
+        if not selected_rows:
+            return
+
+        row_idx = selected_rows[0].row()
+        part = self.parts_needing_review[row_idx]
+
+        # Populate matches table
+        self.matches_table.setRowCount(len(part['matches']))
+
+        for match_idx, match in enumerate(part['matches']):
+            # Parse match: "PartNumber@Manufacturer"
+            if '@' in match:
+                pn, mfg = match.split('@', 1)
+            else:
+                pn = match
+                mfg = ""
+
+            # Radio button for selection
+            radio = QRadioButton()
+            if part.get('selected_match') == match:
+                radio.setChecked(True)
+            radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
+
+            self.matches_table.setCellWidget(match_idx, 0, radio)
+            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
+            self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
+
+            # Show confidence if available (placeholder for now)
+            confidence_item = QTableWidgetItem("-")
+            self.matches_table.setItem(match_idx, 3, confidence_item)
+
+    def on_match_selected(self, part, match, checked):
+        """Handle match selection"""
+        if checked:
+            part['selected_match'] = match
+            self.none_correct_checkbox.setChecked(False)
+
+    def auto_select_highest(self):
+        """Auto-select first match for all parts (highest similarity assumed)"""
+        for part in self.parts_needing_review:
+            if part['matches']:
+                part['selected_match'] = part['matches'][0]
+
+        QMessageBox.information(self, "Auto-Select Complete",
+                              f"Selected first match for {len(self.parts_needing_review)} parts.")
+
+        # Refresh current selection if any
+        self.on_part_selected()
+
+    def ai_suggest_matches(self):
+        """Use AI to suggest best matches"""
+        # Get API key
+        start_page = self.wizard().page(0)
+        self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available",
+                              "Claude AI is not available. Please provide an API key.")
+            return
+
+        # Get combined data from previous step
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            self.combined_data = xml_gen_page.combined_data
+
+        # Disable buttons
+        self.ai_suggest_btn.setEnabled(False)
+        self.auto_select_btn.setEnabled(False)
+
+        # Start AI thread
+        self.ai_match_thread = PartialMatchAIThread(
+            self.api_key,
+            self.parts_needing_review,
+            self.combined_data
+        )
+        self.ai_match_thread.progress.connect(self.on_ai_match_progress)
+        self.ai_match_thread.finished.connect(self.on_ai_match_finished)
+        self.ai_match_thread.error.connect(self.on_ai_match_error)
+        self.ai_match_thread.start()
+
+    def on_ai_match_progress(self, message, current, total):
+        """Update AI progress"""
+        self.csv_summary.setText(message)
+        self.csv_summary.setStyleSheet("padding: 5px; background-color: #e3f2fd; border-radius: 3px;")
+
+    def on_ai_match_finished(self, suggestions):
+        """Apply AI suggestions"""
+        applied = 0
+        for part in self.parts_needing_review:
+            pn = part['PartNumber']
+            if pn in suggestions:
+                suggestion = suggestions[pn]
+                idx = suggestion.get('suggested_index')
+                if idx is not None and 0 <= idx < len(part['matches']):
+                    part['selected_match'] = part['matches'][idx]
+                    part['ai_confidence'] = suggestion.get('confidence', 0)
+                    part['ai_reasoning'] = suggestion.get('reasoning', '')
+                    applied += 1
+
+        self.csv_summary.setText(f"✓ AI suggestions applied to {applied} parts")
+        self.csv_summary.setStyleSheet("padding: 5px; background-color: #c8e6c9; border-radius: 3px; font-weight: bold;")
+
+        # Re-enable buttons
+        self.ai_suggest_btn.setEnabled(True)
+        self.auto_select_btn.setEnabled(True)
+
+        # Refresh view
+        self.on_part_selected()
+
+        QMessageBox.information(self, "AI Suggestions Complete",
+                              f"AI suggested matches for {applied} parts.\n"
+                              f"Review the suggestions and adjust as needed.")
+
+    def on_ai_match_error(self, error_msg):
+        """Handle AI error"""
+        self.csv_summary.setText(f"✗ AI Error: {error_msg[:50]}")
+        self.csv_summary.setStyleSheet("padding: 5px; background-color: #ffcdd2; border-radius: 3px;")
+
+        self.ai_suggest_btn.setEnabled(True)
+        self.auto_select_btn.setEnabled(True)
+
+        QMessageBox.critical(self, "AI Error", f"AI suggestion failed:\n{error_msg}")
+
+    def ai_detect_normalizations(self):
+        """Use AI to detect manufacturer normalizations"""
+        # Get API key
+        start_page = self.wizard().page(0)
+        self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available",
+                              "Claude AI is not available. Please provide an API key.")
+            return
+
+        # Collect all manufacturers
+        all_mfgs = set()
+        supplyframe_mfgs = set()
+
+        # From original data
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            for row in xml_gen_page.combined_data:
+                if row.get('MFG'):
+                    all_mfgs.add(row['MFG'])
+
+        # From SearchAndAssign (SupplyFrame canonical names)
+        for part in self.search_assign_data:
+            if part.get('selected_match') and '@' in part['selected_match']:
+                _, mfg = part['selected_match'].split('@', 1)
+                supplyframe_mfgs.add(mfg)
+
+        self.norm_status.setText("🤖 Analyzing manufacturers...")
+        self.norm_status.setStyleSheet("color: blue;")
+        self.ai_normalize_btn.setEnabled(False)
+
+        # Start AI thread
+        self.ai_norm_thread = ManufacturerNormalizationAIThread(
+            self.api_key,
+            list(all_mfgs),
+            list(supplyframe_mfgs)
+        )
+        self.ai_norm_thread.progress.connect(lambda msg: self.norm_status.setText(msg))
+        self.ai_norm_thread.finished.connect(self.on_ai_norm_finished)
+        self.ai_norm_thread.error.connect(self.on_ai_norm_error)
+        self.ai_norm_thread.start()
+
+    def on_ai_norm_finished(self, normalizations):
+        """Apply AI normalization suggestions"""
+        self.manufacturer_normalizations = normalizations
+
+        # Populate normalization table
+        self.norm_table.setRowCount(len(normalizations))
+
+        row_idx = 0
+        for original, canonical in normalizations.items():
+            # Include checkbox
+            include_cb = QCheckBox()
+            include_cb.setChecked(True)
+            self.norm_table.setCellWidget(row_idx, 0, include_cb)
+
+            # Original MFG
+            self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
+
+            # Normalize To (editable)
+            self.norm_table.setItem(row_idx, 2, QTableWidgetItem(canonical))
+
+            # Scope dropdown
+            scope_combo = QComboBox()
+            scope_combo.addItems(["All Catalogs", "Per Catalog"])
+            self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+
+            row_idx += 1
+
+        self.norm_status.setText(f"✓ Found {len(normalizations)} manufacturer variations")
+        self.norm_status.setStyleSheet("color: green; font-weight: bold;")
+        self.ai_normalize_btn.setEnabled(True)
+
+        QMessageBox.information(self, "Normalization Detected",
+                              f"AI detected {len(normalizations)} manufacturer variations.\n"
+                              f"Review and adjust as needed.")
+
+    def on_ai_norm_error(self, error_msg):
+        """Handle AI normalization error"""
+        self.norm_status.setText(f"✗ Error: {error_msg[:30]}")
+        self.norm_status.setStyleSheet("color: red;")
+        self.ai_normalize_btn.setEnabled(True)
+
+        QMessageBox.critical(self, "AI Error", f"AI normalization failed:\n{error_msg}")
+
+    def apply_changes(self):
+        """Apply all changes and generate comparison"""
+        try:
+            # Get the combined data from XMLGenerationPage (Step 3)
+            prev_page_3 = self.wizard().page(3)  # XMLGenerationPage
+            if not hasattr(prev_page_3, 'combined_data') or not prev_page_3.combined_data:
+                QMessageBox.warning(self, "No Data",
+                                  "No combined data available from Step 3.\n"
+                                  "Please complete Step 3 first.")
+                return
+
+            # Create a copy of the original data
+            import copy
+            old_data = copy.deepcopy(prev_page_3.combined_data)
+            new_data = copy.deepcopy(prev_page_3.combined_data)
+
+            # Track changes for summary
+            matches_applied = 0
+            normalizations_applied = 0
+
+            # Step 1: Apply selected partial matches
+            for part_data in self.search_assign_data:
+                if 'selected_match' in part_data and part_data['selected_match']:
+                    # Parse the selected match: "PartNumber@ManufacturerName"
+                    match_str = part_data['selected_match']
+                    if '@' in match_str:
+                        new_pn, new_mfg = match_str.split('@', 1)
+
+                        # Find and update all matching records in new_data
+                        original_pn = part_data['PartNumber']
+                        original_mfg = part_data['ManufacturerName']
+
+                        for record in new_data:
+                            if (record['MFG_PN'] == original_pn and
+                                record['MFG'] == original_mfg):
+                                record['MFG_PN'] = new_pn.strip()
+                                record['MFG'] = new_mfg.strip()
+                                matches_applied += 1
+
+            # Step 2: Apply manufacturer normalizations
+            for row_idx in range(self.norm_table.rowCount()):
+                # Check if this normalization is included
+                include_checkbox = self.norm_table.cellWidget(row_idx, 0)
+                if not include_checkbox or not include_checkbox.isChecked():
+                    continue
+
+                variation_item = self.norm_table.item(row_idx, 1)
+                canonical_item = self.norm_table.item(row_idx, 2)
+                scope_combo = self.norm_table.cellWidget(row_idx, 3)
+
+                if not variation_item or not canonical_item or not scope_combo:
+                    continue
+
+                variation = variation_item.text().strip()
+                canonical = canonical_item.text().strip()
+                scope = scope_combo.currentText()
+
+                # Apply normalization based on scope
+                if scope == "All Catalogs":
+                    # Apply to all records with this manufacturer variation
+                    for record in new_data:
+                        if record['MFG'] == variation:
+                            record['MFG'] = canonical
+                            normalizations_applied += 1
+                else:
+                    # "Per Catalog" - only apply within this catalog
+                    # Since we're working with a single dataset, treat same as "All Catalogs"
+                    # In a multi-catalog scenario, you'd filter by catalog ID here
+                    for record in new_data:
+                        if record['MFG'] == variation:
+                            record['MFG'] = canonical
+                            normalizations_applied += 1
+
+            # Step 3: Populate comparison tables
+            self.populate_comparison_tables(old_data, new_data)
+
+            # Step 4: Enable XML regeneration button
+            self.regenerate_xml_btn.setEnabled(True)
+
+            # Step 5: Store the new data for XML generation
+            self.updated_data = new_data
+
+            # Show summary
+            QMessageBox.information(self, "Changes Applied",
+                                  f"Changes applied successfully!\n\n"
+                                  f"• {matches_applied} parts updated from SupplyFrame matches\n"
+                                  f"• {normalizations_applied} manufacturer names normalized\n\n"
+                                  f"Review the comparison below and regenerate XML when ready.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to apply changes:\n{str(e)}")
+
+    def populate_comparison_tables(self, old_data, new_data):
+        """Populate side-by-side comparison tables with highlighting"""
+        # Clear existing data
+        self.old_data_table.setRowCount(0)
+        self.new_data_table.setRowCount(0)
+
+        # Set row count
+        row_count = len(old_data)
+        self.old_data_table.setRowCount(row_count)
+        self.new_data_table.setRowCount(row_count)
+
+        # Track changes
+        changed_rows = 0
+
+        for idx, (old_record, new_record) in enumerate(zip(old_data, new_data)):
+            row_changed = False
+
+            # Old data table
+            old_mfg_item = QTableWidgetItem(old_record['MFG'])
+            old_pn_item = QTableWidgetItem(old_record['MFG_PN'])
+            old_desc_item = QTableWidgetItem(old_record['Description'][:50] + "..."
+                                            if len(old_record['Description']) > 50
+                                            else old_record['Description'])
+
+            # New data table
+            new_mfg_item = QTableWidgetItem(new_record['MFG'])
+            new_pn_item = QTableWidgetItem(new_record['MFG_PN'])
+            new_desc_item = QTableWidgetItem(new_record['Description'][:50] + "..."
+                                            if len(new_record['Description']) > 50
+                                            else new_record['Description'])
+
+            # Highlight changes
+            if old_record['MFG'] != new_record['MFG']:
+                new_mfg_item.setBackground(QColor(255, 255, 200))  # Light yellow
+                row_changed = True
+
+            if old_record['MFG_PN'] != new_record['MFG_PN']:
+                new_pn_item.setBackground(QColor(255, 255, 200))  # Light yellow
+                row_changed = True
+
+            if row_changed:
+                changed_rows += 1
+
+            # Set items
+            self.old_data_table.setItem(idx, 0, old_mfg_item)
+            self.old_data_table.setItem(idx, 1, old_pn_item)
+            self.old_data_table.setItem(idx, 2, old_desc_item)
+
+            self.new_data_table.setItem(idx, 0, new_mfg_item)
+            self.new_data_table.setItem(idx, 1, new_pn_item)
+            self.new_data_table.setItem(idx, 2, new_desc_item)
+
+        # Update summary label
+        self.comparison_summary.setText(
+            f"Summary: {changed_rows} of {row_count} records modified "
+            f"({changed_rows * 100 // row_count if row_count > 0 else 0}% changed)"
+        )
+
+    def regenerate_xml(self):
+        """Regenerate XML files with updated data"""
+        try:
+            if not hasattr(self, 'updated_data') or not self.updated_data:
+                QMessageBox.warning(self, "No Data",
+                                  "No updated data available.\n"
+                                  "Please apply changes first.")
+                return
+
+            # Get configuration from XMLGenerationPage (Step 3)
+            prev_page_3 = self.wizard().page(3)  # XMLGenerationPage
+
+            # Get project settings
+            project_name = prev_page_3.project_name.text()
+            catalog = prev_page_3.catalog.text()
+            output_dir = Path(prev_page_3.output_path.text())
+
+            # Get Excel file path to determine base name
+            prev_page_1 = self.wizard().page(1)  # DataSourcePage
+            excel_path = prev_page_1.excel_path
+
+            if not excel_path:
+                QMessageBox.warning(self, "No File",
+                                  "No Excel file path available.")
+                return
+
+            base_name = Path(excel_path).stem
+
+            # Create output file paths with "_Updated" suffix
+            mfg_xml_path = output_dir / f"{base_name}_MFG_Updated.xml"
+            mfgpn_xml_path = output_dir / f"{base_name}_MFGPN_Updated.xml"
+
+            # Extract unique manufacturers from updated data
+            unique_mfgs = sorted(set(record['MFG'] for record in self.updated_data
+                                    if record['MFG'] and record['MFG'].strip()))
+
+            # Prepare MFGPN data
+            mfgpn_data = []
+            for record in self.updated_data:
+                if record['MFG'] and record['MFG_PN']:
+                    mfgpn_data.append({
+                        'MFG': record['MFG'],
+                        'MFG_PN': record['MFG_PN'],
+                        'Description': record.get('Description', 'This is the PN description.')
+                    })
+
+            # Generate MFG XML
+            mfg_count = self.create_mfg_xml(unique_mfgs, mfg_xml_path, project_name, catalog)
+
+            # Generate MFGPN XML
+            mfgpn_count = self.create_mfgpn_xml(mfgpn_data, mfgpn_xml_path, project_name, catalog)
+
+            # Show success message
+            QMessageBox.information(self, "XML Generated",
+                                  f"Updated XML files generated successfully!\n\n"
+                                  f"Files created:\n"
+                                  f"• {mfg_xml_path.name} ({mfg_count} manufacturers)\n"
+                                  f"• {mfgpn_xml_path.name} ({mfgpn_count} part numbers)\n\n"
+                                  f"Output folder:\n{output_dir}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to regenerate XML:\n{str(e)}")
+
+    def escape_xml(self, text):
+        """Escape special XML characters"""
+        if pd.isna(text):
+            return ""
+        text = str(text)
+        text = text.replace("&", "&amp;")
+        text = text.replace("<", "&lt;")
+        text = text.replace(">", "&gt;")
+        text = text.replace('"', "&quot;")
+        text = text.replace("'", "&apos;")
+        return text
+
+    def create_mfg_xml(self, manufacturers, output_file, project_name, catalog):
+        """Create MFG XML file"""
+        root = ET.Element('data')
+
+        for mfg in manufacturers:
+            obj = ET.SubElement(root, 'object')
+            obj.set('objectid', self.escape_xml(mfg))
+            obj.set('catalog', catalog)
+            obj.set('class', '090')
+
+            field1 = ET.SubElement(obj, 'field')
+            field1.set('id', '090obj_skn')
+            field1.text = catalog
+
+            field2 = ET.SubElement(obj, 'field')
+            field2.set('id', '090obj_id')
+            field2.text = self.escape_xml(mfg)
+
+            field3 = ET.SubElement(obj, 'field')
+            field3.set('id', '090her_name')
+            field3.text = self.escape_xml(mfg)
+
+        self.save_xml(root, output_file, project_name)
+        return len(manufacturers)
+
+    def create_mfgpn_xml(self, mfgpn_data, output_file, project_name, catalog):
+        """Create MFGPN XML file"""
+        # Remove duplicates
+        unique_pairs = {}
+        for item in mfgpn_data:
+            key = (item['MFG'], item['MFG_PN'])
+            if key not in unique_pairs:
+                unique_pairs[key] = item['Description']
+
+        root = ET.Element('data')
+
+        for (mfg, mfg_pn), description in unique_pairs.items():
+            objectid = f"{mfg}:{mfg_pn}"
+
+            obj = ET.SubElement(root, 'object')
+            obj.set('objectid', self.escape_xml(objectid))
+            obj.set('class', '060')
+
+            field1 = ET.SubElement(obj, 'field')
+            field1.set('id', '060partnumber')
+            field1.text = self.escape_xml(mfg_pn)
+
+            field2 = ET.SubElement(obj, 'field')
+            field2.set('id', '060mfgref')
+            field2.text = self.escape_xml(mfg)
+
+            field3 = ET.SubElement(obj, 'field')
+            field3.set('id', '060komp_name')
+            field3.text = self.escape_xml(description)
+
+        self.save_xml(root, output_file, project_name)
+        return len(unique_pairs)
+
+    def save_xml(self, root, output_file, project_name):
+        """Format and save XML file"""
+        xml_str = ET.tostring(root, encoding='utf-8', method='xml')
+        dom = minidom.parseString(xml_str)
+
+        comment_lines = [
+            f'Created By: EDM Library Creator v1.7.000.0130',
+            f'DDP Project: {project_name}',
+            f'Date: {datetime.now().strftime("%m/%d/%Y %I:%M:%S %p")}'
+        ]
+
+        xml_lines = ['<?xml version="1.0" encoding="utf-8" standalone="yes"?>']
+        for comment in comment_lines:
+            xml_lines.append(f'<!--{comment}-->')
+
+        formatted = dom.toprettyxml(indent='  ', encoding='utf-8').decode('utf-8')
+        xml_content = '\n'.join(formatted.split('\n')[1:])
+
+        final_xml = '\n'.join(xml_lines) + '\n' + xml_content
+
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(final_xml)
+
+
 class EDMWizard(QWizard):
     """Main wizard window"""
 
@@ -1807,11 +2788,13 @@ class EDMWizard(QWizard):
         self.data_source_page = DataSourcePage()
         self.column_mapping_page = ColumnMappingPage()
         self.xml_generation_page = XMLGenerationPage()
+        self.supplyframe_review_page = SupplyFrameReviewPage()
 
         self.addPage(self.start_page)
         self.addPage(self.data_source_page)
         self.addPage(self.column_mapping_page)
         self.addPage(self.xml_generation_page)
+        self.addPage(self.supplyframe_review_page)
 
         # Customize buttons
         self.setButtonText(QWizard.FinishButton, "Finish")

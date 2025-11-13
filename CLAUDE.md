@@ -11,14 +11,25 @@ This is an EDM (Engineering Data Management) library processing toolkit for Xped
 The codebase provides both individual command-line tools and an integrated wizard application:
 
 ### **RECOMMENDED: EDM Wizard (`edm_wizard.py`)**
-**All-in-one GUI wizard** that combines all three processing steps with an easy-to-use interface.
-- **Technology**: PyQt5 with modern, polished UI
-- **Features**:
-  - Step 1: Choose between Access DB export or existing Excel file with preview
-  - Step 2: Column mapping table for all sheets with flexible combine options
-  - Step 3: XML generation with custom descriptions and TBD manufacturer handling
-- **Usage**: `python edm_wizard.py` or run as standalone executable
-- **See**: `README_WIZARD.md` for complete documentation
+**All-in-one GUI wizard** that combines all processing steps with an easy-to-use PyQt5 interface.
+
+**Architecture**: The wizard uses PyQt5's `QWizard` framework with 5 distinct pages:
+1. **StartPage** - Claude AI API key configuration (optional, enables AI features)
+2. **DataSourcePage** - Access DB export or Excel file selection with preview
+3. **ColumnMappingPage** - Column mapping with AI-assisted detection and sheet combining
+4. **XMLGenerationPage** - XML file generation with project settings
+5. **SupplyFrameReviewPage** - SupplyFrame match review and manufacturer normalization
+
+**Key UI Components**:
+- `CollapsibleGroupBox` - Custom checkable QGroupBox that expands/collapses content when toggled
+- Thread-based workers (`ExportThread`, `ColumnDetectionThread`) for long-running operations
+- Scroll areas and dynamic section expansion for better UX on Step 4
+
+**AI Integration** (Optional, requires Claude API key):
+- Column mapping auto-detection (Step 2)
+- Part number match suggestions using similarity scoring (Step 4)
+- Manufacturer normalization detection (Step 4)
+- Uses `anthropic` package with Claude Sonnet 4.5 model
 
 ### Individual Command-Line Tools
 
@@ -67,17 +78,23 @@ Command-line tool to generate XML files for xml-console from Excel data.
 </object>
 ```
 
-## Common Commands
+## Development Commands
 
-### RECOMMENDED: Run EDM Wizard (All-in-One)
+### Run EDM Wizard (All-in-One - Recommended)
 ```bash
 python edm_wizard.py
 ```
 
-Or build and run as executable:
+### Build Standalone Executable
 ```bash
 build_exe.bat
-# Then run: dist\EDM_Library_Wizard.exe
+# Output: dist\EDM_Library_Wizard.exe
+```
+
+Or manually:
+```bash
+pip install -r requirements_wizard.txt
+pyinstaller --onefile --windowed --name "EDM_Library_Wizard" edm_wizard.py
 ```
 
 ### Alternative: Individual Command-Line Tools
@@ -95,6 +112,11 @@ python excel_sheet_combiner.py "path/to/excel_file.xlsx"
 #### Generate XML Files
 ```bash
 python generate_xml_from_excel.py "path/to/combined_excel.xlsx"
+```
+
+### Run Tests
+```bash
+python AccessToExcel/Unit_Test.py
 ```
 
 ## Data Flow
@@ -168,6 +190,22 @@ Generated files follow these patterns:
 
 ## Important Implementation Details
 
+### PyQt5 Wizard State Management
+- Data flows between wizard pages via attributes set on page objects
+- Access previous page data: `self.wizard().page(page_index).attribute_name`
+- Example: Step 4 accesses Step 3's `combined_data` via `self.wizard().page(3).combined_data`
+- API key is stored in `QSettings` for persistence and passed through wizard pages
+
+### Threading for Long Operations
+- **ExportThread**: Handles Access DB to Excel export without freezing UI
+- **ColumnDetectionThread**: Runs AI column detection in background
+- Both emit signals (`progress`, `finished`, `error`) for UI updates
+
+### UI Patterns
+- **CollapsibleGroupBox**: Custom widget for Step 4's 5 sections, auto-expands when data is ready
+- **Dynamic validation**: Wizard pages use `validatePage()` override to control Next/Finish button state
+- **Scroll areas**: Large content areas (Step 4) wrapped in `QScrollArea` for responsiveness
+
 ### XML Escaping
 All XML generators properly escape special characters (`&`, `<`, `>`, `"`, `'`) using dedicated `escape_xml()` functions.
 
@@ -178,6 +216,12 @@ Sheet names are cleaned to meet Excel's requirements:
 
 ### Duplicate Handling
 MFGPN XML generation automatically removes duplicate MFG:PN combinations before export.
+
+### AI Features (Optional)
+- **Column Detection**: Analyzes first 10 rows to suggest MFG/MFG PN columns
+- **Part Matching**: Uses difflib similarity + Claude AI for intelligent part number matching
+- **Manufacturer Normalization**: Detects variations (e.g., "Texas Instruments" vs "TI")
+- All AI features gracefully degrade if API key not provided or `anthropic` package not installed
 
 ## Utility Scripts
 

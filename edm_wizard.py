@@ -1824,6 +1824,7 @@ class XMLGenerationPage(QWizardPage):
 class PartialMatchAIThread(QThread):
     """Background thread for AI-powered partial match suggestions"""
     progress = pyqtSignal(str, int, int)  # message, current, total
+    part_analyzed = pyqtSignal(int, dict)  # row_idx, analysis_result
     finished = pyqtSignal(dict)  # part_number -> suggested_match_index
     error = pyqtSignal(str)
 
@@ -1840,6 +1841,13 @@ class PartialMatchAIThread(QThread):
 
             total = len(self.parts_needing_review)
             for idx, part in enumerate(self.parts_needing_review):
+                # Skip parts with only one match - no AI needed
+                if len(part['matches']) <= 1:
+                    self.progress.emit(f"⏭️ Skipping part {idx + 1} of {total} (only one match)...", idx + 1, total)
+                    # Still mark as processed
+                    self.part_analyzed.emit(idx, {'skipped': True, 'reason': 'single_match'})
+                    continue
+
                 self.progress.emit(f"🤖 Analyzing part {idx + 1} of {total}...", idx, total)
 
                 # Get original description from combined data
@@ -1890,8 +1898,12 @@ Only return the JSON, no other text."""
                     result = json.loads(response_text)
                     suggestions[part['PartNumber']] = result
 
+                    # Emit per-part update for real-time UI refresh
+                    self.part_analyzed.emit(idx, result)
+
                 except Exception as e:
-                    # If AI fails for this part, skip it
+                    # If AI fails for this part, emit error result
+                    self.part_analyzed.emit(idx, {'error': str(e)})
                     continue
 
             self.finished.emit(suggestions)
@@ -2048,9 +2060,17 @@ class SupplyFrameReviewPage(QWizardPage):
         left_layout.addWidget(QLabel("Parts Needing Review:"))
 
         self.parts_list = QTableWidget()
-        self.parts_list.setColumnCount(3)
-        self.parts_list.setHorizontalHeaderLabels(["Part Number", "MFG", "Status"])
-        self.parts_list.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.parts_list.setColumnCount(5)
+        self.parts_list.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI"])
+
+        # Set column resize modes
+        parts_header = self.parts_list.horizontalHeader()
+        parts_header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
+        parts_header.setSectionResizeMode(1, QHeaderView.Stretch)  # MFG
+        parts_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Status
+        parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
+        parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
+
         self.parts_list.setSelectionBehavior(QTableWidget.SelectRows)
         self.parts_list.setSelectionMode(QTableWidget.SingleSelection)
         self.parts_list.itemSelectionChanged.connect(self.on_part_selected)
@@ -2079,7 +2099,14 @@ class SupplyFrameReviewPage(QWizardPage):
         self.matches_table = QTableWidget()
         self.matches_table.setColumnCount(4)
         self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Confidence"])
-        self.matches_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # Set column resize modes
+        header = self.matches_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select column - fit to content
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number - stretch
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer - stretch
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Confidence - fit to content
+
         right_layout.addWidget(self.matches_table)
 
         self.none_correct_checkbox = QCheckBox("None of these are correct (keep original)")
@@ -2318,11 +2345,49 @@ class SupplyFrameReviewPage(QWizardPage):
         for row_idx, part in enumerate(self.parts_needing_review):
             if row_idx < 5:  # Log first 5
                 print(f"DEBUG: Adding row {row_idx}: {part['PartNumber']} | {part['ManufacturerName']} | {part['MatchStatus']}")
+
             self.parts_list.setItem(row_idx, 0, QTableWidgetItem(part['PartNumber']))
             self.parts_list.setItem(row_idx, 1, QTableWidgetItem(part['ManufacturerName']))
             self.parts_list.setItem(row_idx, 2, QTableWidgetItem(part['MatchStatus']))
 
+            # Reviewed indicator
+            reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
+            reviewed_item.setTextAlignment(Qt.AlignCenter)
+            self.parts_list.setItem(row_idx, 3, reviewed_item)
+
+            # AI indicator
+            ai_status = ""
+            if part.get('ai_processed'):
+                ai_status = "🤖"
+            elif part.get('ai_processing'):
+                ai_status = "⏳"
+            ai_item = QTableWidgetItem(ai_status)
+            ai_item.setTextAlignment(Qt.AlignCenter)
+            self.parts_list.setItem(row_idx, 4, ai_item)
+
         print(f"DEBUG: Parts list populated with {self.parts_list.rowCount()} rows")
+
+    def update_part_row(self, row_idx):
+        """Update a single row in the parts list (for real-time AI updates)"""
+        if row_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[row_idx]
+
+        # Update Reviewed indicator
+        reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
+        reviewed_item.setTextAlignment(Qt.AlignCenter)
+        self.parts_list.setItem(row_idx, 3, reviewed_item)
+
+        # Update AI indicator
+        ai_status = ""
+        if part.get('ai_processed'):
+            ai_status = "🤖"
+        elif part.get('ai_processing'):
+            ai_status = "⏳"
+        ai_item = QTableWidgetItem(ai_status)
+        ai_item.setTextAlignment(Qt.AlignCenter)
+        self.parts_list.setItem(row_idx, 4, ai_item)
 
     def on_part_selected(self):
         """Handle part selection - show matches"""
@@ -2336,6 +2401,10 @@ class SupplyFrameReviewPage(QWizardPage):
         # Populate matches table
         self.matches_table.setRowCount(len(part['matches']))
 
+        # Calculate similarity scores for confidence
+        from difflib import SequenceMatcher
+        original_pn = part['PartNumber'].upper().strip()
+
         for match_idx, match in enumerate(part['matches']):
             # Parse match: "PartNumber@Manufacturer"
             if '@' in match:
@@ -2344,18 +2413,29 @@ class SupplyFrameReviewPage(QWizardPage):
                 pn = match
                 mfg = ""
 
-            # Radio button for selection
+            # Radio button for selection - centered in cell
             radio = QRadioButton()
             if part.get('selected_match') == match:
                 radio.setChecked(True)
             radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
 
-            self.matches_table.setCellWidget(match_idx, 0, radio)
+            # Create a widget to center the radio button
+            radio_widget = QWidget()
+            radio_layout = QHBoxLayout(radio_widget)
+            radio_layout.addWidget(radio)
+            radio_layout.setAlignment(Qt.AlignCenter)
+            radio_layout.setContentsMargins(0, 0, 0, 0)
+
+            self.matches_table.setCellWidget(match_idx, 0, radio_widget)
             self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
             self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
 
-            # Show confidence if available (placeholder for now)
-            confidence_item = QTableWidgetItem("-")
+            # Calculate confidence score using similarity
+            match_pn = pn.upper().strip()
+            similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+            confidence_pct = int(similarity * 100)
+            confidence_item = QTableWidgetItem(f"{confidence_pct}%")
+            confidence_item.setTextAlignment(Qt.AlignCenter)
             self.matches_table.setItem(match_idx, 3, confidence_item)
 
     def on_match_selected(self, part, match, checked):
@@ -2365,13 +2445,43 @@ class SupplyFrameReviewPage(QWizardPage):
             self.none_correct_checkbox.setChecked(False)
 
     def auto_select_highest(self):
-        """Auto-select first match for all parts (highest similarity assumed)"""
+        """Auto-select match with highest similarity using difflib"""
+        from difflib import SequenceMatcher
+
+        selected_count = 0
         for part in self.parts_needing_review:
-            if part['matches']:
-                part['selected_match'] = part['matches'][0]
+            if not part['matches']:
+                continue
+
+            original_pn = part['PartNumber'].upper().strip()
+            best_match = None
+            best_similarity = 0.0
+
+            # Calculate similarity for each match
+            for match in part['matches']:
+                # Parse match: "PartNumber@Manufacturer"
+                if '@' in match:
+                    match_pn, match_mfg = match.split('@', 1)
+                else:
+                    match_pn = match
+
+                match_pn = match_pn.upper().strip()
+
+                # Calculate similarity ratio
+                similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = match
+
+            if best_match:
+                part['selected_match'] = best_match
+                part['auto_selected'] = True
+                part['similarity_score'] = best_similarity
+                selected_count += 1
 
         QMessageBox.information(self, "Auto-Select Complete",
-                              f"Selected first match for {len(self.parts_needing_review)} parts.")
+                              f"Selected best match for {selected_count} parts using similarity analysis.")
 
         # Refresh current selection if any
         self.on_part_selected()
@@ -2396,6 +2506,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.ai_suggest_btn.setEnabled(False)
         self.auto_select_btn.setEnabled(False)
 
+        # Mark all parts as processing
+        for part in self.parts_needing_review:
+            part['ai_processing'] = True
+
+        # Refresh parts list to show processing indicators
+        self.populate_parts_list()
+
         # Start AI thread
         self.ai_match_thread = PartialMatchAIThread(
             self.api_key,
@@ -2403,6 +2520,7 @@ class SupplyFrameReviewPage(QWizardPage):
             self.combined_data
         )
         self.ai_match_thread.progress.connect(self.on_ai_match_progress)
+        self.ai_match_thread.part_analyzed.connect(self.on_part_analyzed)  # NEW: real-time updates
         self.ai_match_thread.finished.connect(self.on_ai_match_finished)
         self.ai_match_thread.error.connect(self.on_ai_match_error)
         self.ai_match_thread.start()
@@ -2411,6 +2529,34 @@ class SupplyFrameReviewPage(QWizardPage):
         """Update AI progress"""
         self.csv_summary.setText(message)
         self.csv_summary.setStyleSheet("padding: 5px; background-color: #e3f2fd; border-radius: 3px;")
+
+    def on_part_analyzed(self, row_idx, result):
+        """Handle real-time part analysis completion"""
+        if row_idx < len(self.parts_needing_review):
+            part = self.parts_needing_review[row_idx]
+
+            # Clear processing flag
+            part['ai_processing'] = False
+
+            if result.get('skipped'):
+                # Part was skipped (single match)
+                part['ai_processed'] = False
+            elif result.get('error'):
+                # AI failed for this part
+                part['ai_processed'] = False
+            else:
+                # AI successfully analyzed
+                part['ai_processed'] = True
+
+                # Apply suggestion if provided
+                idx = result.get('suggested_index')
+                if idx is not None and 0 <= idx < len(part['matches']):
+                    part['selected_match'] = part['matches'][idx]
+                    part['ai_confidence'] = result.get('confidence', 0)
+                    part['ai_reasoning'] = result.get('reasoning', '')
+
+            # Update UI for this specific row
+            self.update_part_row(row_idx)
 
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""

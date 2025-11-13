@@ -2860,6 +2860,30 @@ class SupplyFrameReviewPage(QWizardPage):
         """Apply AI normalization suggestions"""
         self.manufacturer_normalizations = normalizations
 
+        # Collect all unique manufacturers from both sources
+        all_mfgs = set()
+
+        # From original data
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            for row in xml_gen_page.combined_data:
+                if row.get('MFG'):
+                    all_mfgs.add(row['MFG'])
+
+        # From SearchAndAssign (SupplyFrame canonical names)
+        for part in self.search_assign_data:
+            if part.get('selected_match') and '@' in part['selected_match']:
+                _, mfg = part['selected_match'].split('@', 1)
+                all_mfgs.add(mfg)
+
+        # From normalization suggestions
+        for original, canonical in normalizations.items():
+            all_mfgs.add(original)
+            all_mfgs.add(canonical)
+
+        # Sort manufacturers for easier selection
+        sorted_mfgs = sorted(list(all_mfgs))
+
         # Populate normalization table
         self.norm_table.setRowCount(len(normalizations))
 
@@ -2870,11 +2894,15 @@ class SupplyFrameReviewPage(QWizardPage):
             include_cb.setChecked(True)
             self.norm_table.setCellWidget(row_idx, 0, include_cb)
 
-            # Original MFG
+            # Original MFG (read-only)
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-            # Normalize To (editable)
-            self.norm_table.setItem(row_idx, 2, QTableWidgetItem(canonical))
+            # Normalize To (editable combo box)
+            normalize_combo = QComboBox()
+            normalize_combo.setEditable(True)
+            normalize_combo.addItems(sorted_mfgs)
+            normalize_combo.setCurrentText(canonical)
+            self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
             # Scope dropdown
             scope_combo = QComboBox()
@@ -2946,14 +2974,14 @@ class SupplyFrameReviewPage(QWizardPage):
                     continue
 
                 variation_item = self.norm_table.item(row_idx, 1)
-                canonical_item = self.norm_table.item(row_idx, 2)
+                canonical_combo = self.norm_table.cellWidget(row_idx, 2)
                 scope_combo = self.norm_table.cellWidget(row_idx, 3)
 
-                if not variation_item or not canonical_item or not scope_combo:
+                if not variation_item or not canonical_combo or not scope_combo:
                     continue
 
                 variation = variation_item.text().strip()
-                canonical = canonical_item.text().strip()
+                canonical = canonical_combo.currentText().strip()
                 scope = scope_combo.currentText()
 
                 # Apply normalization based on scope

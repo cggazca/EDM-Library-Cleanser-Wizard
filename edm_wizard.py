@@ -24,7 +24,7 @@ try:
         QSizePolicy, QGridLayout, QWidget, QSplitter
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
-    from PyQt5.QtGui import QFont, QIcon
+    from PyQt5.QtGui import QFont, QIcon, QColor
 except ImportError:
     print("Error: PyQt5 is required. Install it with: pip install PyQt5")
     sys.exit(1)
@@ -2851,7 +2851,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Get Excel file path to determine base name
             prev_page_1 = self.wizard().page(1)  # DataSourcePage
-            excel_path = prev_page_1.excel_path
+            excel_path = prev_page_1.get_excel_path()
 
             if not excel_path:
                 QMessageBox.warning(self, "No File",

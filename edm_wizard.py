@@ -2028,8 +2028,9 @@ Instructions:
 3. Map each variation to the canonical SupplyFrame name when available
 4. For companies not in SupplyFrame, suggest the most complete/official name
 5. IMPORTANT: For each mapping, provide a brief reasoning (acquisitions, abbreviations, etc.)
+6. CRITICAL: Ensure all string values are properly escaped for JSON (escape quotes, newlines, backslashes)
 
-Return a JSON object with this structure:
+Return ONLY valid JSON with this structure:
 {{
     "normalizations": {{
         "<variation>": "<canonical_name>",
@@ -2042,7 +2043,10 @@ Return a JSON object with this structure:
     }}
 }}
 
-Only include entries that need normalization. Only return JSON, no other text."""
+IMPORTANT:
+- Only include entries that need normalization
+- Return ONLY valid JSON, no markdown, no other text
+- Ensure all quotes inside strings are escaped with backslash"""
 
                     response = client.messages.create(
                         model="claude-haiku-4-5-20251001",
@@ -2051,13 +2055,38 @@ Only include entries that need normalization. Only return JSON, no other text.""
                     )
 
                     response_text = response.content[0].text.strip()
-                    if response_text.startswith('```'):
-                        response_text = response_text.split('```')[1]
-                        if response_text.startswith('json'):
-                            response_text = response_text[4:]
-                        response_text = response_text.strip()
 
-                    ai_result = json.loads(response_text)
+                    # Clean up code blocks
+                    if response_text.startswith('```'):
+                        # Extract content between code blocks
+                        parts = response_text.split('```')
+                        if len(parts) >= 2:
+                            response_text = parts[1]
+                            # Remove 'json' language identifier if present
+                            if response_text.startswith('json'):
+                                response_text = response_text[4:]
+                            response_text = response_text.strip()
+
+                    # Try to parse JSON with better error handling
+                    try:
+                        ai_result = json.loads(response_text)
+                    except json.JSONDecodeError as je:
+                        # Log the error and try to extract what we can
+                        self.progress.emit(f"⚠️ JSON parse error at char {je.pos}: {je.msg}")
+
+                        # Fallback: Try to find JSON object in the response
+                        import re
+                        json_match = re.search(r'\{[\s\S]*\}', response_text)
+                        if json_match:
+                            try:
+                                ai_result = json.loads(json_match.group())
+                            except:
+                                # If all parsing fails, return empty results for AI phase
+                                self.progress.emit("⚠️ Could not parse AI response, using fuzzy matches only")
+                                ai_result = {"normalizations": {}, "reasoning": {}}
+                        else:
+                            ai_result = {"normalizations": {}, "reasoning": {}}
+
                     ai_normalizations = ai_result.get('normalizations', {})
                     ai_reasoning = ai_result.get('reasoning', {})
 
@@ -2069,7 +2098,10 @@ Only include entries that need normalization. Only return JSON, no other text.""
                             'reasoning': ai_reasoning.get(variation, 'AI suggested normalization')
                         }
 
-                    self.progress.emit(f"✓ Phase 2 complete: {len(ai_normalizations)} AI-validated matches")
+                    if ai_normalizations:
+                        self.progress.emit(f"✓ Phase 2 complete: {len(ai_normalizations)} AI-validated matches")
+                    else:
+                        self.progress.emit("✓ Phase 2 complete: No additional AI matches")
 
             # Emit combined results
             self.finished.emit(fuzzy_matches, reasoning_map)

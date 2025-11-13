@@ -2306,9 +2306,8 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table = QTableWidget()
         self.norm_table.setColumnCount(4)
         self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
-        # TODO: Implement context menu
-        # self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        # self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
+        self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
 

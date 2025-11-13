@@ -1,0 +1,28 @@
+=== Step 4 CSV Load Debug Log ===
+Timestamp: 2025-11-13 14:04:56.950827
+CSV Path: C:/Users/z004ut2y/OneDrive - Siemens AG/Documents/01_Projects/Customers/Var Industries/varindustries_edm-eles-sample-dataset_2025-09-18_1349 (1)/SearchAndAssign_Result_20251113064427.csv
+CSV Exists: True
+CSV Size: 2603678 bytes
+
+Starting CSV parsing...
+Header: ['PartNumber', 'ManufacturerName', 'MatchStatus', 'MatchValue(PartNumber@ManufacturerName)']
+
+Row 1: PN=R941463600, MFG=TBD, Status=Need user review, Matches=1
+Row 2: PN=R941464600, MFG=TBD, Status=Need user review, Matches=1
+Row 3: PN=R941460600, MFG=TBD, Status=Need user review, Matches=1
+Row 4: PN=R941461600, MFG=TBD, Status=Need user review, Matches=1
+Row 5: PN=R941462600, MFG=TBD, Status=Need user review, Matches=1
+Row 6: PN=52263-1, MFG=TE, Status=Found, Matches=1
+Row 7: PN=0559/310/4, MFG=WURTH, Status=None, Matches=0
+Row 8: PN=0559/110/4, MFG=WURTH, Status=None, Matches=0
+Row 9: PN=EKL00DE310G00, MFG=VISHAY ROEDERSTEIN, Status=None, Matches=0
+Row 10: PN=RKA-63V101MX, MFG=ELNA, Status=Found, Matches=1
+
+=== Parsing Complete ===
+Total rows processed: 3432
+Total parts loaded: 3432
+Exact matches: 1959
+Partial matches: 444
+Needs review: 105
+No match: 924
+Parts needing review list: 549

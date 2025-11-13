@@ -5,7 +5,9 @@
       "Bash(python:*)",
       "Bash(pip show:*)",
       "Bash(pip install:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

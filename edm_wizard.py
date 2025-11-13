@@ -21,7 +21,7 @@ try:
         QRadioButton, QPushButton, QLabel, QLineEdit, QFileDialog,
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
-        QSizePolicy, QGridLayout, QWidget, QSplitter
+        QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -37,6 +37,38 @@ try:
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
+
+
+class CollapsibleGroupBox(QGroupBox):
+    """A QGroupBox that can be collapsed/expanded by clicking the title"""
+
+    def __init__(self, title="", parent=None):
+        super().__init__(title, parent)
+        self.setCheckable(True)
+        self.setChecked(True)  # Expanded by default
+        self.toggled.connect(self.on_toggled)
+
+        # Store the content widget
+        self._content_widget = None
+
+    def setContentLayout(self, layout):
+        """Set the content layout that will be shown/hidden"""
+        if self._content_widget:
+            self._content_widget.deleteLater()
+
+        self._content_widget = QWidget()
+        self._content_widget.setLayout(layout)
+
+        # Create main layout for the group box
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self._content_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        super().setLayout(main_layout)
+
+    def on_toggled(self, checked):
+        """Show/hide content when toggled"""
+        if self._content_widget:
+            self._content_widget.setVisible(checked)
 
 
 class StartPage(QWizardPage):
@@ -1997,29 +2029,45 @@ class SupplyFrameReviewPage(QWizardPage):
         self.combined_data = []
         self.api_key = None
 
-        # Main layout
-        main_layout = QVBoxLayout()
+        # Main layout with scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
-        # Section 1: Load CSV
-        self.create_csv_section(main_layout)
+        scroll_widget = QWidget()
+        main_layout = QVBoxLayout(scroll_widget)
+        main_layout.setSpacing(10)  # Add spacing between sections
 
-        # Section 2: Review Partial Matches
-        self.create_review_section(main_layout)
+        # Section 1: Load CSV (expanded by default)
+        self.csv_group = self.create_csv_section(main_layout)
 
-        # Section 3: Manufacturer Normalization
-        self.create_normalization_section(main_layout)
+        # Section 2: Review Partial Matches (collapsed by default)
+        self.review_group = self.create_review_section(main_layout)
+        self.review_group.setChecked(False)
 
-        # Section 4: Comparison View
-        self.create_comparison_section(main_layout)
+        # Section 3: Manufacturer Normalization (collapsed by default)
+        self.norm_group = self.create_normalization_section(main_layout)
+        self.norm_group.setChecked(False)
+
+        # Section 4: Comparison View (collapsed by default)
+        self.comp_group = self.create_comparison_section(main_layout)
+        self.comp_group.setChecked(False)
 
         # Section 5: Final Actions
         self.create_actions_section(main_layout)
 
-        self.setLayout(main_layout)
+        main_layout.addStretch()  # Push everything to the top
+
+        scroll.setWidget(scroll_widget)
+
+        page_layout = QVBoxLayout()
+        page_layout.addWidget(scroll)
+        self.setLayout(page_layout)
 
     def create_csv_section(self, parent_layout):
         """Section 1: Load SearchAndAssign CSV"""
-        csv_group = QGroupBox("1. Load SearchAndAssign Results")
+        csv_group = CollapsibleGroupBox("1. Load SearchAndAssign Results")
         csv_layout = QVBoxLayout()
 
         # File browser
@@ -2045,12 +2093,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.csv_summary.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px;")
         csv_layout.addWidget(self.csv_summary)
 
-        csv_group.setLayout(csv_layout)
+        csv_group.setContentLayout(csv_layout)
         parent_layout.addWidget(csv_group)
+        return csv_group
 
     def create_review_section(self, parent_layout):
         """Section 2: Review Partial Matches"""
-        review_group = QGroupBox("2. Review Partial Matches")
+        review_group = CollapsibleGroupBox("2. Review Partial Matches")
         review_layout = QHBoxLayout()
 
         # Left panel: Parts list
@@ -2141,12 +2190,13 @@ class SupplyFrameReviewPage(QWizardPage):
         splitter.setSizes([400, 600])
 
         review_layout.addWidget(splitter)
-        review_group.setLayout(review_layout)
+        review_group.setContentLayout(review_layout)
         parent_layout.addWidget(review_group)
+        return review_group
 
     def create_normalization_section(self, parent_layout):
         """Section 3: Manufacturer Normalization"""
-        norm_group = QGroupBox("3. Manufacturer Normalization")
+        norm_group = CollapsibleGroupBox("3. Manufacturer Normalization")
         norm_layout = QVBoxLayout()
 
         # AI button
@@ -2168,12 +2218,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
 
-        norm_group.setLayout(norm_layout)
+        norm_group.setContentLayout(norm_layout)
         parent_layout.addWidget(norm_group)
+        return norm_group
 
     def create_comparison_section(self, parent_layout):
         """Section 4: Comparison View"""
-        comp_group = QGroupBox("4. Review Changes")
+        comp_group = CollapsibleGroupBox("4. Review Changes")
         comp_layout = QVBoxLayout()
 
         # Summary
@@ -2210,8 +2261,9 @@ class SupplyFrameReviewPage(QWizardPage):
         tables_layout.addWidget(new_widget)
         comp_layout.addLayout(tables_layout)
 
-        comp_group.setLayout(comp_layout)
+        comp_group.setContentLayout(comp_layout)
         parent_layout.addWidget(comp_group)
+        return comp_group
 
     def create_actions_section(self, parent_layout):
         """Section 5: Final Actions"""
@@ -2356,6 +2408,11 @@ class SupplyFrameReviewPage(QWizardPage):
             self.ai_suggest_btn.setEnabled(len(self.parts_needing_review) > 0)
             self.ai_normalize_btn.setEnabled(True)
             self.apply_changes_btn.setEnabled(True)
+
+            # Auto-expand relevant sections
+            if len(self.parts_needing_review) > 0:
+                self.review_group.setChecked(True)  # Expand review section if there are parts to review
+            self.norm_group.setChecked(True)  # Expand normalization section
 
             QMessageBox.information(self, "CSV Loaded", f"Successfully loaded {total} parts from SearchAndAssign CSV.")
 
@@ -2920,6 +2977,9 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Step 5: Store the new data for XML generation
             self.updated_data = new_data
+
+            # Auto-expand comparison section
+            self.comp_group.setChecked(True)
 
             # Show summary
             QMessageBox.information(self, "Changes Applied",

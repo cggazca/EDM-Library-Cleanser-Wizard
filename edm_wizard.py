@@ -2198,62 +2198,97 @@ class SupplyFrameReviewPage(QWizardPage):
             QMessageBox.warning(self, "File Not Found", "Please select a valid CSV file.")
             return
 
+        # Create log file
+        log_path = Path(csv_path).parent / "step4_load_debug.log"
+
         try:
             # Parse CSV with varying column counts - read as raw text lines
             import csv
+            import datetime
 
-            self.search_assign_data = []
-            self.parts_needing_review = []
+            with open(log_path, 'w', encoding='utf-8') as log:
+                log.write(f"=== Step 4 CSV Load Debug Log ===\n")
+                log.write(f"Timestamp: {datetime.datetime.now()}\n")
+                log.write(f"CSV Path: {csv_path}\n")
+                log.write(f"CSV Exists: {Path(csv_path).exists()}\n")
+                log.write(f"CSV Size: {Path(csv_path).stat().st_size} bytes\n\n")
 
-            exact_matches = 0
-            partial_matches = 0
-            needs_review = 0
-            no_match = 0
+                self.search_assign_data = []
+                self.parts_needing_review = []
 
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                csv_reader = csv.reader(f)
-                header = next(csv_reader)  # Skip header
+                exact_matches = 0
+                partial_matches = 0
+                needs_review = 0
+                no_match = 0
 
-                for row in csv_reader:
-                    if len(row) < 3:  # Need at least PartNumber, ManufacturerName, MatchStatus
-                        continue
+                log.write("Starting CSV parsing...\n")
 
-                    part_num = row[0]
-                    mfg = row[1]
-                    status = row[2]
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    csv_reader = csv.reader(f)
+                    header = next(csv_reader)  # Skip header
+                    log.write(f"Header: {header}\n\n")
 
-                    # Collect all match values (column 3 onwards)
-                    matches = []
-                    for col_idx in range(3, len(row)):
-                        if row[col_idx].strip():  # Non-empty
-                            matches.append(row[col_idx])
+                    row_count = 0
+                    for row in csv_reader:
+                        row_count += 1
 
-                part_data = {
-                    'PartNumber': part_num,
-                    'ManufacturerName': mfg,
-                    'MatchStatus': status,
-                    'matches': matches,
-                    'selected_match': None
-                }
+                        if len(row) < 3:  # Need at least PartNumber, ManufacturerName, MatchStatus
+                            log.write(f"Row {row_count}: SKIPPED (too few columns: {len(row)})\n")
+                            continue
 
-                self.search_assign_data.append(part_data)
+                        part_num = row[0]
+                        mfg = row[1]
+                        status = row[2]
 
-                # Categorize
-                if status == "Found":
-                    exact_matches += 1
-                    if matches:
-                        part_data['selected_match'] = matches[0]  # Auto-select Found match
-                elif status == "Multiple" or status == "Need user review":
-                    if status == "Multiple":
-                        partial_matches += 1
-                    else:
-                        needs_review += 1
-                    self.parts_needing_review.append(part_data)
-                else:  # None
-                    no_match += 1
+                        # Collect all match values (column 3 onwards)
+                        matches = []
+                        for col_idx in range(3, len(row)):
+                            if row[col_idx].strip():  # Non-empty
+                                matches.append(row[col_idx])
+
+                        part_data = {
+                            'PartNumber': part_num,
+                            'ManufacturerName': mfg,
+                            'MatchStatus': status,
+                            'matches': matches,
+                            'selected_match': None
+                        }
+
+                        self.search_assign_data.append(part_data)
+
+                        # Log first 10 rows
+                        if row_count <= 10:
+                            log.write(f"Row {row_count}: PN={part_num}, MFG={mfg}, Status={status}, Matches={len(matches)}\n")
+
+                        # Categorize
+                        if status == "Found":
+                            exact_matches += 1
+                            if matches:
+                                part_data['selected_match'] = matches[0]  # Auto-select Found match
+                        elif status == "Multiple" or status == "Need user review":
+                            if status == "Multiple":
+                                partial_matches += 1
+                            else:
+                                needs_review += 1
+                            self.parts_needing_review.append(part_data)
+                        else:  # None
+                            no_match += 1
+
+                    log.write(f"\n=== Parsing Complete ===\n")
+                    log.write(f"Total rows processed: {row_count}\n")
+                    log.write(f"Total parts loaded: {len(self.search_assign_data)}\n")
+                    log.write(f"Exact matches: {exact_matches}\n")
+                    log.write(f"Partial matches: {partial_matches}\n")
+                    log.write(f"Needs review: {needs_review}\n")
+                    log.write(f"No match: {no_match}\n")
+                    log.write(f"Parts needing review list: {len(self.parts_needing_review)}\n")
 
             # Update summary
             total = len(self.search_assign_data)
+            print(f"DEBUG: Loaded {total} parts from {csv_path}")
+            print(f"DEBUG: exact={exact_matches}, partial={partial_matches}, needs_review={needs_review}, no_match={no_match}")
+            print(f"DEBUG: Log file written to: {log_path}")
+
             self.csv_summary.setText(
                 f"✓ Loaded {total} parts: {exact_matches} exact, "
                 f"{partial_matches} partial, {needs_review} need review, {no_match} no match"
@@ -2277,12 +2312,17 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def populate_parts_list(self):
         """Populate the parts needing review list"""
+        print(f"DEBUG populate_parts_list: parts_needing_review count = {len(self.parts_needing_review)}")
         self.parts_list.setRowCount(len(self.parts_needing_review))
 
         for row_idx, part in enumerate(self.parts_needing_review):
+            if row_idx < 5:  # Log first 5
+                print(f"DEBUG: Adding row {row_idx}: {part['PartNumber']} | {part['ManufacturerName']} | {part['MatchStatus']}")
             self.parts_list.setItem(row_idx, 0, QTableWidgetItem(part['PartNumber']))
             self.parts_list.setItem(row_idx, 1, QTableWidgetItem(part['ManufacturerName']))
             self.parts_list.setItem(row_idx, 2, QTableWidgetItem(part['MatchStatus']))
+
+        print(f"DEBUG: Parts list populated with {self.parts_list.rowCount()} rows")
 
     def on_part_selected(self):
         """Handle part selection - show matches"""

@@ -2060,8 +2060,8 @@ class SupplyFrameReviewPage(QWizardPage):
         left_layout.addWidget(QLabel("Parts Needing Review:"))
 
         self.parts_list = QTableWidget()
-        self.parts_list.setColumnCount(5)
-        self.parts_list.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI"])
+        self.parts_list.setColumnCount(6)
+        self.parts_list.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI", "Action"])
 
         # Set column resize modes
         parts_header = self.parts_list.horizontalHeader()
@@ -2070,6 +2070,7 @@ class SupplyFrameReviewPage(QWizardPage):
         parts_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Status
         parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
         parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
+        parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
 
         self.parts_list.setSelectionBehavior(QTableWidget.SelectRows)
         self.parts_list.setSelectionMode(QTableWidget.SingleSelection)
@@ -2365,6 +2366,13 @@ class SupplyFrameReviewPage(QWizardPage):
             ai_item.setTextAlignment(Qt.AlignCenter)
             self.parts_list.setItem(row_idx, 4, ai_item)
 
+            # Action button - AI Suggest (only if >1 match and not already processed)
+            if len(part['matches']) > 1 and not part.get('ai_processed'):
+                ai_btn = QPushButton("🤖 AI")
+                ai_btn.setToolTip("Use AI to suggest best match for this part")
+                ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
+                self.parts_list.setCellWidget(row_idx, 5, ai_btn)
+
         print(f"DEBUG: Parts list populated with {self.parts_list.rowCount()} rows")
 
     def update_part_row(self, row_idx):
@@ -2388,6 +2396,17 @@ class SupplyFrameReviewPage(QWizardPage):
         ai_item = QTableWidgetItem(ai_status)
         ai_item.setTextAlignment(Qt.AlignCenter)
         self.parts_list.setItem(row_idx, 4, ai_item)
+
+        # Update/Remove Action button - remove if already processed
+        if part.get('ai_processed'):
+            # Remove the button if AI has processed this part
+            self.parts_list.setCellWidget(row_idx, 5, None)
+        elif len(part['matches']) > 1 and not part.get('ai_processing'):
+            # Re-add button if it's not processing and has multiple matches
+            ai_btn = QPushButton("🤖 AI")
+            ai_btn.setToolTip("Use AI to suggest best match for this part")
+            ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
+            self.parts_list.setCellWidget(row_idx, 5, ai_btn)
 
     def on_part_selected(self):
         """Handle part selection - show matches"""
@@ -2486,8 +2505,23 @@ class SupplyFrameReviewPage(QWizardPage):
         # Refresh current selection if any
         self.on_part_selected()
 
-    def ai_suggest_matches(self):
-        """Use AI to suggest best matches"""
+    def ai_suggest_single(self, row_idx):
+        """Use AI to suggest best match for a single part"""
+        if row_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[row_idx]
+
+        # Skip if already processed or processing
+        if part.get('ai_processed') or part.get('ai_processing'):
+            return
+
+        # Skip if only one match
+        if len(part['matches']) <= 1:
+            QMessageBox.information(self, "No AI Needed",
+                                  "This part has only one match. No AI analysis needed.")
+            return
+
         # Get API key
         start_page = self.wizard().page(0)
         self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
@@ -2502,21 +2536,65 @@ class SupplyFrameReviewPage(QWizardPage):
         if hasattr(xml_gen_page, 'combined_data'):
             self.combined_data = xml_gen_page.combined_data
 
+        # Mark this part as processing
+        part['ai_processing'] = True
+        self.update_part_row(row_idx)
+
+        # Create a list with just this one part
+        parts_to_process = [part]
+
+        # Start AI thread for single part
+        self.ai_match_thread = PartialMatchAIThread(
+            self.api_key,
+            parts_to_process,
+            self.combined_data
+        )
+        self.ai_match_thread.progress.connect(lambda msg, cur, tot: self.csv_summary.setText(f"🤖 Analyzing part..."))
+        self.ai_match_thread.part_analyzed.connect(lambda idx, result: self.on_part_analyzed(row_idx, result))
+        self.ai_match_thread.finished.connect(lambda suggestions: self.csv_summary.setText(f"✓ AI analysis complete"))
+        self.ai_match_thread.error.connect(lambda err: QMessageBox.critical(self, "AI Error", f"AI analysis failed:\n{err}"))
+        self.ai_match_thread.start()
+
+    def ai_suggest_matches(self):
+        """Use AI to suggest best matches for all unprocessed parts"""
+        # Get API key
+        start_page = self.wizard().page(0)
+        self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available",
+                              "Claude AI is not available. Please provide an API key.")
+            return
+
+        # Get combined data from previous step
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            self.combined_data = xml_gen_page.combined_data
+
+        # Filter out already processed parts
+        unprocessed_parts = [part for part in self.parts_needing_review
+                            if not part.get('ai_processed')]
+
+        if not unprocessed_parts:
+            QMessageBox.information(self, "All Processed",
+                                  "All parts have already been processed by AI.")
+            return
+
         # Disable buttons
         self.ai_suggest_btn.setEnabled(False)
         self.auto_select_btn.setEnabled(False)
 
-        # Mark all parts as processing
-        for part in self.parts_needing_review:
+        # Mark unprocessed parts as processing
+        for part in unprocessed_parts:
             part['ai_processing'] = True
 
         # Refresh parts list to show processing indicators
         self.populate_parts_list()
 
-        # Start AI thread
+        # Start AI thread with only unprocessed parts
         self.ai_match_thread = PartialMatchAIThread(
             self.api_key,
-            self.parts_needing_review,
+            unprocessed_parts,
             self.combined_data
         )
         self.ai_match_thread.progress.connect(self.on_ai_match_progress)

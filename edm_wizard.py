@@ -2082,11 +2082,31 @@ class SupplyFrameReviewPage(QWizardPage):
         self.auto_select_btn = QPushButton("Auto-Select Highest Similarity")
         self.auto_select_btn.clicked.connect(self.auto_select_highest)
         self.auto_select_btn.setEnabled(False)
+        self.auto_select_btn.setToolTip(
+            "Automatically selects the best match based on string similarity.\n\n"
+            "How it works:\n"
+            "• Uses difflib to compare part numbers character-by-character\n"
+            "• Calculates similarity score (0-100%) for each match\n"
+            "• Selects the match with highest similarity score\n"
+            "• Fast and deterministic (no AI/API calls)\n"
+            "• Best for exact or near-exact part number matches"
+        )
         bulk_layout.addWidget(self.auto_select_btn)
 
         self.ai_suggest_btn = QPushButton("🤖 AI Suggest Best Matches")
         self.ai_suggest_btn.clicked.connect(self.ai_suggest_matches)
         self.ai_suggest_btn.setEnabled(False)
+        self.ai_suggest_btn.setToolTip(
+            "Uses Claude AI to intelligently suggest the best match.\n\n"
+            "How it works:\n"
+            "• Analyzes part number, manufacturer, and description\n"
+            "• Considers manufacturer acquisitions (e.g., EPCOS → TDK)\n"
+            "• Understands context and component semantics\n"
+            "• Provides confidence score with reasoning\n"
+            "• Skips parts with only 1 match\n"
+            "• Skips already AI-processed parts\n"
+            "• Best for complex matches requiring context understanding"
+        )
         bulk_layout.addWidget(self.ai_suggest_btn)
 
         left_layout.addLayout(bulk_layout)
@@ -2098,15 +2118,16 @@ class SupplyFrameReviewPage(QWizardPage):
         right_layout.addWidget(QLabel("Available Matches:"))
 
         self.matches_table = QTableWidget()
-        self.matches_table.setColumnCount(4)
-        self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Confidence"])
+        self.matches_table.setColumnCount(5)
+        self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
 
         # Set column resize modes
         header = self.matches_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select column - fit to content
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number - stretch
         header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer - stretch
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Confidence - fit to content
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Similarity - fit to content
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score - fit to content
 
         right_layout.addWidget(self.matches_table)
 
@@ -2326,6 +2347,9 @@ class SupplyFrameReviewPage(QWizardPage):
             # Populate parts list
             self.populate_parts_list()
 
+            # Populate manufacturer list for normalization
+            self.populate_manufacturer_list()
+
             # Enable buttons
             self.csv_loaded = True
             self.auto_select_btn.setEnabled(len(self.parts_needing_review) > 0)
@@ -2337,6 +2361,38 @@ class SupplyFrameReviewPage(QWizardPage):
 
         except Exception as e:
             QMessageBox.critical(self, "Load Error", f"Failed to load CSV:\n{str(e)}")
+
+    def populate_manufacturer_list(self):
+        """Populate manufacturer list from loaded data (without AI)"""
+        # Collect all manufacturers from user data and SupplyFrame
+        all_mfgs = set()
+        supplyframe_mfgs = set()
+
+        # From original data (Step 3)
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            for row in xml_gen_page.combined_data:
+                if row.get('MFG'):
+                    all_mfgs.add(row['MFG'])
+
+        # From SearchAndAssign data
+        for part in self.search_assign_data:
+            # Original manufacturers
+            if part.get('ManufacturerName'):
+                all_mfgs.add(part['ManufacturerName'])
+
+            # SupplyFrame manufacturers from matches
+            for match in part.get('matches', []):
+                if '@' in match:
+                    _, mfg = match.split('@', 1)
+                    supplyframe_mfgs.add(mfg)
+
+        # Show unique manufacturer counts in status
+        self.norm_status.setText(
+            f"ℹ️ Found {len(all_mfgs)} unique manufacturers in your data, "
+            f"{len(supplyframe_mfgs)} from SupplyFrame. Click AI Detect to find variations."
+        )
+        self.norm_status.setStyleSheet("color: #1976d2; font-weight: bold;")
 
     def populate_parts_list(self):
         """Populate the parts needing review list"""
@@ -2449,13 +2505,26 @@ class SupplyFrameReviewPage(QWizardPage):
             self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
             self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
 
-            # Calculate confidence score using similarity
+            # Calculate similarity score
             match_pn = pn.upper().strip()
             similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
-            confidence_pct = int(similarity * 100)
-            confidence_item = QTableWidgetItem(f"{confidence_pct}%")
-            confidence_item.setTextAlignment(Qt.AlignCenter)
-            self.matches_table.setItem(match_idx, 3, confidence_item)
+            similarity_pct = int(similarity * 100)
+            similarity_item = QTableWidgetItem(f"{similarity_pct}%")
+            similarity_item.setTextAlignment(Qt.AlignCenter)
+            similarity_item.setToolTip("String similarity using difflib (part number matching)")
+            self.matches_table.setItem(match_idx, 3, similarity_item)
+
+            # AI Score - only show if AI has processed this part
+            ai_score_item = QTableWidgetItem("")
+            ai_score_item.setTextAlignment(Qt.AlignCenter)
+            if part.get('ai_processed') and part.get('ai_match_scores'):
+                # Get AI confidence for this specific match
+                ai_scores = part.get('ai_match_scores', {})
+                if match in ai_scores:
+                    ai_conf = ai_scores[match]
+                    ai_score_item.setText(f"{ai_conf}%")
+                    ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
+            self.matches_table.setItem(match_idx, 4, ai_score_item)
 
     def on_match_selected(self, part, match, checked):
         """Handle match selection"""
@@ -2626,12 +2695,22 @@ class SupplyFrameReviewPage(QWizardPage):
                 # AI successfully analyzed
                 part['ai_processed'] = True
 
-                # Apply suggestion if provided
+                # Store AI confidence score for the suggested match
                 idx = result.get('suggested_index')
+                confidence = result.get('confidence', 0)
+
+                # Create a dictionary to store AI scores for each match
+                # (For now, only the suggested match has an AI score)
+                if not part.get('ai_match_scores'):
+                    part['ai_match_scores'] = {}
+
                 if idx is not None and 0 <= idx < len(part['matches']):
-                    part['selected_match'] = part['matches'][idx]
-                    part['ai_confidence'] = result.get('confidence', 0)
+                    suggested_match = part['matches'][idx]
+                    part['selected_match'] = suggested_match
+                    part['ai_confidence'] = confidence
                     part['ai_reasoning'] = result.get('reasoning', '')
+                    # Store the AI score for this specific match
+                    part['ai_match_scores'][suggested_match] = confidence
 
             # Update UI for this specific row
             self.update_part_row(row_idx)

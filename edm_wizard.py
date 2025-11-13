@@ -21,7 +21,7 @@ try:
         QRadioButton, QPushButton, QLabel, QLineEdit, QFileDialog,
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
-        QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea
+        QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -2101,7 +2101,14 @@ class SupplyFrameReviewPage(QWizardPage):
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
 
-        left_layout.addWidget(QLabel("Parts Needing Review:"))
+        # Parts list header with review count
+        parts_header_layout = QHBoxLayout()
+        parts_header_layout.addWidget(QLabel("Parts Needing Review:"))
+        self.review_count_label = QLabel("(0 of 0 reviewed)")
+        self.review_count_label.setStyleSheet("color: #1976d2; font-weight: bold;")
+        parts_header_layout.addWidget(self.review_count_label)
+        parts_header_layout.addStretch()
+        left_layout.addLayout(parts_header_layout)
 
         self.parts_list = QTableWidget()
         self.parts_list.setColumnCount(6)
@@ -2165,6 +2172,8 @@ class SupplyFrameReviewPage(QWizardPage):
         self.matches_table = QTableWidget()
         self.matches_table.setColumnCount(5)
         self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+        self.matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
 
         # Set column resize modes
         header = self.matches_table.horizontalHeader()
@@ -2178,6 +2187,16 @@ class SupplyFrameReviewPage(QWizardPage):
 
         self.none_correct_checkbox = QCheckBox("None of these are correct (keep original)")
         right_layout.addWidget(self.none_correct_checkbox)
+
+        # Save button for selections
+        save_layout = QHBoxLayout()
+        self.save_selection_btn = QPushButton("💾 Save Selection")
+        self.save_selection_btn.clicked.connect(self.save_current_selection)
+        self.save_selection_btn.setEnabled(False)
+        self.save_selection_btn.setToolTip("Save your current match selection for this part")
+        save_layout.addWidget(self.save_selection_btn)
+        save_layout.addStretch()
+        right_layout.addLayout(save_layout)
 
         # Splitter
         splitter = QSplitter(Qt.Horizontal)
@@ -2398,6 +2417,9 @@ class SupplyFrameReviewPage(QWizardPage):
             # Populate manufacturer list for normalization
             self.populate_manufacturer_list()
 
+            # Update review count
+            self.update_review_count()
+
             # Enable buttons
             self.csv_loaded = True
             self.auto_select_btn.setEnabled(len(self.parts_needing_review) > 0)
@@ -2584,6 +2606,168 @@ class SupplyFrameReviewPage(QWizardPage):
         if checked:
             part['selected_match'] = match
             self.none_correct_checkbox.setChecked(False)
+            self.save_selection_btn.setEnabled(True)
+
+    def refresh_matches_display(self):
+        """Refresh the matches table for the currently selected part"""
+        selected_rows = self.parts_list.selectedIndexes()
+        if not selected_rows:
+            return
+
+        row_idx = selected_rows[0].row()
+        if row_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[row_idx]
+
+        # Re-populate matches table
+        self.matches_table.setRowCount(len(part['matches']))
+
+        from difflib import SequenceMatcher
+        original_pn = part['PartNumber'].upper().strip()
+
+        for match_idx, match in enumerate(part['matches']):
+            # Parse match
+            if '@' in match:
+                pn, mfg = match.split('@', 1)
+            else:
+                pn = match
+                mfg = ""
+
+            # Radio button
+            radio = QRadioButton()
+            if part.get('selected_match') == match:
+                radio.setChecked(True)
+            radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
+
+            radio_widget = QWidget()
+            radio_layout = QHBoxLayout(radio_widget)
+            radio_layout.addWidget(radio)
+            radio_layout.setAlignment(Qt.AlignCenter)
+            radio_layout.setContentsMargins(0, 0, 0, 0)
+
+            self.matches_table.setCellWidget(match_idx, 0, radio_widget)
+            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
+            self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
+
+            # Similarity score
+            match_pn = pn.upper().strip()
+            similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+            similarity_pct = int(similarity * 100)
+            similarity_item = QTableWidgetItem(f"{similarity_pct}%")
+            similarity_item.setTextAlignment(Qt.AlignCenter)
+            similarity_item.setToolTip("String similarity using difflib (part number matching)")
+            self.matches_table.setItem(match_idx, 3, similarity_item)
+
+            # AI Score - show if available
+            ai_score_item = QTableWidgetItem("")
+            ai_score_item.setTextAlignment(Qt.AlignCenter)
+            if part.get('ai_processed') and part.get('ai_match_scores'):
+                ai_scores = part.get('ai_match_scores', {})
+                if match in ai_scores:
+                    ai_conf = ai_scores[match]
+                    ai_score_item.setText(f"{ai_conf}%")
+                    ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
+            self.matches_table.setItem(match_idx, 4, ai_score_item)
+
+    def show_match_context_menu(self, position):
+        """Show context menu for matches table"""
+        row = self.matches_table.rowAt(position.y())
+        if row < 0:
+            return
+
+        # Get the currently selected part
+        selected_rows = self.parts_list.selectedIndexes()
+        if not selected_rows:
+            return
+
+        part_idx = selected_rows[0].row()
+        if part_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[part_idx]
+
+        # Only show menu if AI has processed this part
+        if not part.get('ai_processed') or not part.get('ai_reasoning'):
+            return
+
+        # Get the match at this row
+        if row >= len(part['matches']):
+            return
+
+        match = part['matches'][row]
+
+        # Only show reasoning if this is the AI-suggested match
+        if match != part.get('selected_match'):
+            return
+
+        # Create context menu
+        menu = QMenu(self)
+        action = menu.addAction("🤖 Show AI Reasoning")
+
+        selected_action = menu.exec_(self.matches_table.viewport().mapToGlobal(position))
+
+        if selected_action == action:
+            self.show_ai_reasoning(part)
+
+    def show_ai_reasoning(self, part):
+        """Show AI reasoning in a dialog"""
+        reasoning = part.get('ai_reasoning', 'No reasoning available')
+        confidence = part.get('ai_confidence', 0)
+        selected_match = part.get('selected_match', 'N/A')
+
+        # Parse match
+        if '@' in selected_match:
+            pn, mfg = selected_match.split('@', 1)
+        else:
+            pn = selected_match
+            mfg = "N/A"
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("AI Reasoning")
+        dialog.setIcon(QMessageBox.Information)
+        dialog.setText(f"<b>AI Suggested Match:</b><br>"
+                      f"Part Number: {pn}<br>"
+                      f"Manufacturer: {mfg}<br>"
+                      f"Confidence: {confidence}%<br><br>"
+                      f"<b>Reasoning:</b>")
+        dialog.setInformativeText(reasoning)
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec_()
+
+    def update_review_count(self):
+        """Update the reviewed parts count label"""
+        total = len(self.parts_needing_review)
+        reviewed = sum(1 for part in self.parts_needing_review if part.get('selected_match'))
+        self.review_count_label.setText(f"({reviewed} of {total} reviewed)")
+
+    def save_current_selection(self):
+        """Save the current match selection"""
+        selected_rows = self.parts_list.selectedIndexes()
+        if not selected_rows:
+            return
+
+        row_idx = selected_rows[0].row()
+        if row_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[row_idx]
+
+        # Mark as user-reviewed
+        part['user_reviewed'] = True
+
+        # Update the row
+        self.update_part_row(row_idx)
+
+        # Update count
+        self.update_review_count()
+
+        # Disable save button
+        self.save_selection_btn.setEnabled(False)
+
+        # Show confirmation
+        QMessageBox.information(self, "Selection Saved",
+                              f"Match selection saved for {part['PartNumber']}")
 
     def auto_select_highest(self):
         """Auto-select match with highest similarity using difflib (MFG + MFG PN)"""
@@ -2630,6 +2814,9 @@ class SupplyFrameReviewPage(QWizardPage):
 
         QMessageBox.information(self, "Auto-Select Complete",
                               f"Selected best match for {selected_count} parts using similarity analysis.")
+
+        # Update review count
+        self.update_review_count()
 
         # Refresh current selection if any
         self.on_part_selected()
@@ -2774,6 +2961,14 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Update UI for this specific row
             self.update_part_row(row_idx)
+
+            # Auto-refresh matches table if this is the currently selected part
+            selected_rows = self.parts_list.selectedIndexes()
+            if selected_rows and selected_rows[0].row() == row_idx:
+                self.refresh_matches_display()
+
+            # Update review count
+            self.update_review_count()
 
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""

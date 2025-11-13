@@ -2199,8 +2199,8 @@ class SupplyFrameReviewPage(QWizardPage):
             return
 
         try:
-            # Parse CSV
-            df = pd.read_csv(csv_path)
+            # Parse CSV with varying column counts - read as raw text lines
+            import csv
 
             self.search_assign_data = []
             self.parts_needing_review = []
@@ -2210,16 +2210,23 @@ class SupplyFrameReviewPage(QWizardPage):
             needs_review = 0
             no_match = 0
 
-            for _, row in df.iterrows():
-                part_num = row['PartNumber']
-                mfg = row['ManufacturerName']
-                status = row['MatchStatus']
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                csv_reader = csv.reader(f)
+                header = next(csv_reader)  # Skip header
 
-                # Collect all match columns (column 3 onwards)
-                matches = []
-                for col_idx in range(3, len(row)):
-                    if pd.notna(row.iloc[col_idx]) and row.iloc[col_idx]:
-                        matches.append(row.iloc[col_idx])
+                for row in csv_reader:
+                    if len(row) < 3:  # Need at least PartNumber, ManufacturerName, MatchStatus
+                        continue
+
+                    part_num = row[0]
+                    mfg = row[1]
+                    status = row[2]
+
+                    # Collect all match values (column 3 onwards)
+                    matches = []
+                    for col_idx in range(3, len(row)):
+                        if row[col_idx].strip():  # Non-empty
+                            matches.append(row[col_idx])
 
                 part_data = {
                     'PartNumber': part_num,

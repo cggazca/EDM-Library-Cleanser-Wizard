@@ -522,8 +522,19 @@ class DataSourcePage(QWizardPage):
         # Preview section
         preview_group = QGroupBox("Data Preview")
         preview_layout = QVBoxLayout()
+
+        # Sheet selector
+        sheet_selector_layout = QHBoxLayout()
+        sheet_selector_layout.addWidget(QLabel("Sheet:"))
+        self.sheet_selector = QComboBox()
+        self.sheet_selector.currentTextChanged.connect(self.on_sheet_changed)
+        sheet_selector_layout.addWidget(self.sheet_selector)
+        sheet_selector_layout.addStretch()
+
         self.preview_label = QLabel("No data loaded")
         self.preview_table = QTableWidget()
+
+        preview_layout.addLayout(sheet_selector_layout)
         preview_layout.addWidget(self.preview_label)
         preview_layout.addWidget(self.preview_table)
         preview_group.setLayout(preview_layout)
@@ -645,18 +656,37 @@ class DataSourcePage(QWizardPage):
             QMessageBox.warning(self, "Error", f"Failed to load Excel file: {str(e)}")
 
     def show_preview(self, dataframes):
-        """Show preview of first 100 rows from first sheet"""
+        """Show preview of first 100 rows and populate sheet selector"""
         if not dataframes:
             return
 
+        # Populate sheet selector
+        self.sheet_selector.blockSignals(True)  # Prevent triggering on_sheet_changed during population
+        self.sheet_selector.clear()
+        self.sheet_selector.addItems(list(dataframes.keys()))
+        self.sheet_selector.blockSignals(False)
+
+        # Show first sheet
         first_sheet = list(dataframes.keys())[0]
-        df = dataframes[first_sheet]
+        self.display_sheet_preview(first_sheet)
+
+    def on_sheet_changed(self, sheet_name):
+        """Handle sheet selection change"""
+        if sheet_name and self.dataframes:
+            self.display_sheet_preview(sheet_name)
+
+    def display_sheet_preview(self, sheet_name):
+        """Display preview of the selected sheet"""
+        if sheet_name not in self.dataframes:
+            return
+
+        df = self.dataframes[sheet_name]
 
         # Limit to first 100 rows
         preview_df = df.head(100)
 
         self.preview_label.setText(
-            f"Preview: {first_sheet} ({len(df)} total rows, showing first {len(preview_df)})"
+            f"Preview: {sheet_name} ({len(df)} total rows, showing first {len(preview_df)})"
         )
 
         # Populate table

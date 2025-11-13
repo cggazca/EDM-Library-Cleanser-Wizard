@@ -1,0 +1,1754 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<!--Created By: EDM Library Creator v1.7.000.0130-->
+<!--DDP Project: Ivano-->
+<!--Date: 11/10/2025 3:39:22 PM-->
+<data>
+  <object objectid="3M" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">3M</field>
+    <field id="090her_name">3M</field>
+  </object>
+  <object objectid="AAVID" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AAVID</field>
+    <field id="090her_name">AAVID</field>
+  </object>
+  <object objectid="AAVIDTHERMALLOY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AAVIDTHERMALLOY</field>
+    <field id="090her_name">AAVIDTHERMALLOY</field>
+  </object>
+  <object objectid="ABB POWER ELECTRONIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ABB POWER ELECTRONIC</field>
+    <field id="090her_name">ABB POWER ELECTRONIC</field>
+  </object>
+  <object objectid="ABRACON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ABRACON</field>
+    <field id="090her_name">ABRACON</field>
+  </object>
+  <object objectid="ADELS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ADELS</field>
+    <field id="090her_name">ADELS</field>
+  </object>
+  <object objectid="ADIMPEX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ADIMPEX</field>
+    <field id="090her_name">ADIMPEX</field>
+  </object>
+  <object objectid="AEL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AEL</field>
+    <field id="090her_name">AEL</field>
+  </object>
+  <object objectid="AGILENT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AGILENT</field>
+    <field id="090her_name">AGILENT</field>
+  </object>
+  <object objectid="AGILENT TECH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AGILENT TECH</field>
+    <field id="090her_name">AGILENT TECH</field>
+  </object>
+  <object objectid="AKANE OHM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AKANE OHM</field>
+    <field id="090her_name">AKANE OHM</field>
+  </object>
+  <object objectid="ALLEGRO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ALLEGRO</field>
+    <field id="090her_name">ALLEGRO</field>
+  </object>
+  <object objectid="ALPHANOVATEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ALPHANOVATEC</field>
+    <field id="090her_name">ALPHANOVATEC</field>
+  </object>
+  <object objectid="ALPHANOVATECH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ALPHANOVATECH</field>
+    <field id="090her_name">ALPHANOVATECH</field>
+  </object>
+  <object objectid="ALTERA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ALTERA</field>
+    <field id="090her_name">ALTERA</field>
+  </object>
+  <object objectid="AMD" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AMD</field>
+    <field id="090her_name">AMD</field>
+  </object>
+  <object objectid="AMP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AMP</field>
+    <field id="090her_name">AMP</field>
+  </object>
+  <object objectid="AMPHENOL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AMPHENOL</field>
+    <field id="090her_name">AMPHENOL</field>
+  </object>
+  <object objectid="ANALOG" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANALOG</field>
+    <field id="090her_name">ANALOG</field>
+  </object>
+  <object objectid="ANALOG DEVICE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANALOG DEVICE</field>
+    <field id="090her_name">ANALOG DEVICE</field>
+  </object>
+  <object objectid="ANALOG DEVICES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANALOG DEVICES</field>
+    <field id="090her_name">ANALOG DEVICES</field>
+  </object>
+  <object objectid="ANDERSON POWER PRODUCTS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANDERSON POWER PRODUCTS</field>
+    <field id="090her_name">ANDERSON POWER PRODUCTS</field>
+  </object>
+  <object objectid="ANSLEY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANSLEY</field>
+    <field id="090her_name">ANSLEY</field>
+  </object>
+  <object objectid="ANTARES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ANTARES</field>
+    <field id="090her_name">ANTARES</field>
+  </object>
+  <object objectid="APEM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">APEM</field>
+    <field id="090her_name">APEM</field>
+  </object>
+  <object objectid="API-DELEVAN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">API-DELEVAN</field>
+    <field id="090her_name">API-DELEVAN</field>
+  </object>
+  <object objectid="ARCOLECTRIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ARCOLECTRIC</field>
+    <field id="090her_name">ARCOLECTRIC</field>
+  </object>
+  <object objectid="ARCOTRONICS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ARCOTRONICS</field>
+    <field id="090her_name">ARCOTRONICS</field>
+  </object>
+  <object objectid="ARIES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ARIES</field>
+    <field id="090her_name">ARIES</field>
+  </object>
+  <object objectid="ART Elektromechanik" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ART Elektromechanik</field>
+    <field id="090her_name">ART Elektromechanik</field>
+  </object>
+  <object objectid="ARTESYN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ARTESYN</field>
+    <field id="090her_name">ARTESYN</field>
+  </object>
+  <object objectid="ASSMANN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ASSMANN</field>
+    <field id="090her_name">ASSMANN</field>
+  </object>
+  <object objectid="ATC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ATC</field>
+    <field id="090her_name">ATC</field>
+  </object>
+  <object objectid="ATE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ATE</field>
+    <field id="090her_name">ATE</field>
+  </object>
+  <object objectid="ATMEL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ATMEL</field>
+    <field id="090her_name">ATMEL</field>
+  </object>
+  <object objectid="AVAGO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AVAGO</field>
+    <field id="090her_name">AVAGO</field>
+  </object>
+  <object objectid="AVX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AVX</field>
+    <field id="090her_name">AVX</field>
+  </object>
+  <object objectid="AVX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">AVX</field>
+    <field id="090her_name">AVX</field>
+  </object>
+  <object objectid="Amphenol ICC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Amphenol ICC</field>
+    <field id="090her_name">Amphenol ICC</field>
+  </object>
+  <object objectid="Amphenol RF" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Amphenol RF</field>
+    <field id="090her_name">Amphenol RF</field>
+  </object>
+  <object objectid="BEL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BEL</field>
+    <field id="090her_name">BEL</field>
+  </object>
+  <object objectid="BEL FUSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BEL FUSE</field>
+    <field id="090her_name">BEL FUSE</field>
+  </object>
+  <object objectid="BELFUSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BELFUSE</field>
+    <field id="090her_name">BELFUSE</field>
+  </object>
+  <object objectid="BERG" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BERG</field>
+    <field id="090her_name">BERG</field>
+  </object>
+  <object objectid="BITECHNOLOGIES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BITECHNOLOGIES</field>
+    <field id="090her_name">BITECHNOLOGIES</field>
+  </object>
+  <object objectid="BOURNS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BOURNS</field>
+    <field id="090her_name">BOURNS</field>
+  </object>
+  <object objectid="BOYD" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BOYD</field>
+    <field id="090her_name">BOYD</field>
+  </object>
+  <object objectid="BURN-IN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BURN-IN</field>
+    <field id="090her_name">BURN-IN</field>
+  </object>
+  <object objectid="BURR BROWN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BURR BROWN</field>
+    <field id="090her_name">BURR BROWN</field>
+  </object>
+  <object objectid="BUSSMANN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">BUSSMANN</field>
+    <field id="090her_name">BUSSMANN</field>
+  </object>
+  <object objectid="Bourns Inc." catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Bourns Inc.</field>
+    <field id="090her_name">Bourns Inc.</field>
+  </object>
+  <object objectid="C&amp;amp;K" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">C&amp;amp;K</field>
+    <field id="090her_name">C&amp;amp;K</field>
+  </object>
+  <object objectid="CADDOCK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CADDOCK</field>
+    <field id="090her_name">CADDOCK</field>
+  </object>
+  <object objectid="CATALYST" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CATALYST</field>
+    <field id="090her_name">CATALYST</field>
+  </object>
+  <object objectid="CDE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CDE</field>
+    <field id="090her_name">CDE</field>
+  </object>
+  <object objectid="CED" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CED</field>
+    <field id="090her_name">CED</field>
+  </object>
+  <object objectid="CELDUC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CELDUC</field>
+    <field id="090her_name">CELDUC</field>
+  </object>
+  <object objectid="CENTRALSEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CENTRALSEMI</field>
+    <field id="090her_name">CENTRALSEMI</field>
+  </object>
+  <object objectid="CERMET" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CERMET</field>
+    <field id="090her_name">CERMET</field>
+  </object>
+  <object objectid="CHEMI-CON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CHEMI-CON</field>
+    <field id="090her_name">CHEMI-CON</field>
+  </object>
+  <object objectid="CHEMICON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CHEMICON</field>
+    <field id="090her_name">CHEMICON</field>
+  </object>
+  <object objectid="CICOIL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CICOIL</field>
+    <field id="090her_name">CICOIL</field>
+  </object>
+  <object objectid="CINCON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CINCON</field>
+    <field id="090her_name">CINCON</field>
+  </object>
+  <object objectid="COGEMA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">COGEMA</field>
+    <field id="090her_name">COGEMA</field>
+  </object>
+  <object objectid="COILCRAFT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">COILCRAFT</field>
+    <field id="090her_name">COILCRAFT</field>
+  </object>
+  <object objectid="COILTRONICS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">COILTRONICS</field>
+    <field id="090her_name">COILTRONICS</field>
+  </object>
+  <object objectid="COMCHIP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">COMCHIP</field>
+    <field id="090her_name">COMCHIP</field>
+  </object>
+  <object objectid="CONNEI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CONNEI</field>
+    <field id="090her_name">CONNEI</field>
+  </object>
+  <object objectid="CONTECH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CONTECH</field>
+    <field id="090her_name">CONTECH</field>
+  </object>
+  <object objectid="CORNELL DUBILIER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CORNELL DUBILIER</field>
+    <field id="090her_name">CORNELL DUBILIER</field>
+  </object>
+  <object objectid="COTO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">COTO</field>
+    <field id="090her_name">COTO</field>
+  </object>
+  <object objectid="CREE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CREE</field>
+    <field id="090her_name">CREE</field>
+  </object>
+  <object objectid="CTI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CTI</field>
+    <field id="090her_name">CTI</field>
+  </object>
+  <object objectid="CTS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CTS</field>
+    <field id="090her_name">CTS</field>
+  </object>
+  <object objectid="CUI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CUI</field>
+    <field id="090her_name">CUI</field>
+  </object>
+  <object objectid="CUI INC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CUI INC</field>
+    <field id="090her_name">CUI INC</field>
+  </object>
+  <object objectid="CVILUX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CVILUX</field>
+    <field id="090her_name">CVILUX</field>
+  </object>
+  <object objectid="CYNTEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CYNTEC</field>
+    <field id="090her_name">CYNTEC</field>
+  </object>
+  <object objectid="CYPRESS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">CYPRESS</field>
+    <field id="090her_name">CYPRESS</field>
+  </object>
+  <object objectid="Chemi-con" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Chemi-con</field>
+    <field id="090her_name">Chemi-con</field>
+  </object>
+  <object objectid="DELTA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DELTA</field>
+    <field id="090her_name">DELTA</field>
+  </object>
+  <object objectid="DIALIGHT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DIALIGHT</field>
+    <field id="090her_name">DIALIGHT</field>
+  </object>
+  <object objectid="DIODES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DIODES</field>
+    <field id="090her_name">DIODES</field>
+  </object>
+  <object objectid="DIODES INC." catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DIODES INC.</field>
+    <field id="090her_name">DIODES INC.</field>
+  </object>
+  <object objectid="DIOTEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DIOTEC</field>
+    <field id="090her_name">DIOTEC</field>
+  </object>
+  <object objectid="DUPONT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">DUPONT</field>
+    <field id="090her_name">DUPONT</field>
+  </object>
+  <object objectid="E-SWITCH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">E-SWITCH</field>
+    <field id="090her_name">E-SWITCH</field>
+  </object>
+  <object objectid="EATON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EATON</field>
+    <field id="090her_name">EATON</field>
+  </object>
+  <object objectid="ECS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ECS</field>
+    <field id="090her_name">ECS</field>
+  </object>
+  <object objectid="ECS INC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ECS INC</field>
+    <field id="090her_name">ECS INC</field>
+  </object>
+  <object objectid="EDAC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EDAC</field>
+    <field id="090her_name">EDAC</field>
+  </object>
+  <object objectid="EDGE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EDGE</field>
+    <field id="090her_name">EDGE</field>
+  </object>
+  <object objectid="ELANTEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ELANTEC</field>
+    <field id="090her_name">ELANTEC</field>
+  </object>
+  <object objectid="ELES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ELES</field>
+    <field id="090her_name">ELES</field>
+  </object>
+  <object objectid="ELEVATE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ELEVATE</field>
+    <field id="090her_name">ELEVATE</field>
+  </object>
+  <object objectid="ELNA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ELNA</field>
+    <field id="090her_name">ELNA</field>
+  </object>
+  <object objectid="EMC TECHNOLOGY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EMC TECHNOLOGY</field>
+    <field id="090her_name">EMC TECHNOLOGY</field>
+  </object>
+  <object objectid="ENCO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ENCO</field>
+    <field id="090her_name">ENCO</field>
+  </object>
+  <object objectid="ENPLAS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ENPLAS</field>
+    <field id="090her_name">ENPLAS</field>
+  </object>
+  <object objectid="EPC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EPC</field>
+    <field id="090her_name">EPC</field>
+  </object>
+  <object objectid="EPCOS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EPCOS</field>
+    <field id="090her_name">EPCOS</field>
+  </object>
+  <object objectid="EPCOS TDK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EPCOS TDK</field>
+    <field id="090her_name">EPCOS TDK</field>
+  </object>
+  <object objectid="EPSON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EPSON</field>
+    <field id="090her_name">EPSON</field>
+  </object>
+  <object objectid="ERNI Electronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ERNI Electronics</field>
+    <field id="090her_name">ERNI Electronics</field>
+  </object>
+  <object objectid="EUROQUARTZ" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EUROQUARTZ</field>
+    <field id="090her_name">EUROQUARTZ</field>
+  </object>
+  <object objectid="EXAR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">EXAR</field>
+    <field id="090her_name">EXAR</field>
+  </object>
+  <object objectid="European Thermodynamics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">European Thermodynamics</field>
+    <field id="090her_name">European Thermodynamics</field>
+  </object>
+  <object objectid="FAIRCHILD" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FAIRCHILD</field>
+    <field id="090her_name">FAIRCHILD</field>
+  </object>
+  <object objectid="FAIRCHILD SEMICONDUCTOR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FAIRCHILD SEMICONDUCTOR</field>
+    <field id="090her_name">FAIRCHILD SEMICONDUCTOR</field>
+  </object>
+  <object objectid="FARCHILD" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FARCHILD</field>
+    <field id="090her_name">FARCHILD</field>
+  </object>
+  <object objectid="FCI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FCI</field>
+    <field id="090her_name">FCI</field>
+  </object>
+  <object objectid="FCI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FCI</field>
+    <field id="090her_name">FCI</field>
+  </object>
+  <object objectid="FEME" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FEME</field>
+    <field id="090her_name">FEME</field>
+  </object>
+  <object objectid="FINDER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FINDER</field>
+    <field id="090her_name">FINDER</field>
+  </object>
+  <object objectid="FISCHER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FISCHER</field>
+    <field id="090her_name">FISCHER</field>
+  </object>
+  <object objectid="FISCHER ELEKTRONIK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FISCHER ELEKTRONIK</field>
+    <field id="090her_name">FISCHER ELEKTRONIK</field>
+  </object>
+  <object objectid="FLEXPOWER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FLEXPOWER</field>
+    <field id="090her_name">FLEXPOWER</field>
+  </object>
+  <object objectid="FOX ELECTRONICS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FOX ELECTRONICS</field>
+    <field id="090her_name">FOX ELECTRONICS</field>
+  </object>
+  <object objectid="FOX Electronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FOX Electronics</field>
+    <field id="090her_name">FOX Electronics</field>
+  </object>
+  <object objectid="FREESCALE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FREESCALE</field>
+    <field id="090her_name">FREESCALE</field>
+  </object>
+  <object objectid="FTDI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FTDI</field>
+    <field id="090her_name">FTDI</field>
+  </object>
+  <object objectid="FUJITSU" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">FUJITSU</field>
+    <field id="090her_name">FUJITSU</field>
+  </object>
+  <object objectid="GAPTEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GAPTEC</field>
+    <field id="090her_name">GAPTEC</field>
+  </object>
+  <object objectid="GARRY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GARRY</field>
+    <field id="090her_name">GARRY</field>
+  </object>
+  <object objectid="GCT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GCT</field>
+    <field id="090her_name">GCT</field>
+  </object>
+  <object objectid="GENERAL INSTRUMENTS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GENERAL INSTRUMENTS</field>
+    <field id="090her_name">GENERAL INSTRUMENTS</field>
+  </object>
+  <object objectid="GENERAL SEMICONDUCTOR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GENERAL SEMICONDUCTOR</field>
+    <field id="090her_name">GENERAL SEMICONDUCTOR</field>
+  </object>
+  <object objectid="GENESIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GENESIC</field>
+    <field id="090her_name">GENESIC</field>
+  </object>
+  <object objectid="GLORIA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GLORIA</field>
+    <field id="090her_name">GLORIA</field>
+  </object>
+  <object objectid="GOOD-ARK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GOOD-ARK</field>
+    <field id="090her_name">GOOD-ARK</field>
+  </object>
+  <object objectid="GRAYHILL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">GRAYHILL</field>
+    <field id="090her_name">GRAYHILL</field>
+  </object>
+  <object objectid="Good-Ark Semiconductor" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Good-Ark Semiconductor</field>
+    <field id="090her_name">Good-Ark Semiconductor</field>
+  </object>
+  <object objectid="H.T.P." catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">H.T.P.</field>
+    <field id="090her_name">H.T.P.</field>
+  </object>
+  <object objectid="HALO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HALO</field>
+    <field id="090her_name">HALO</field>
+  </object>
+  <object objectid="HARRIS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HARRIS</field>
+    <field id="090her_name">HARRIS</field>
+  </object>
+  <object objectid="HARTING" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HARTING</field>
+    <field id="090her_name">HARTING</field>
+  </object>
+  <object objectid="HARTMANN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HARTMANN</field>
+    <field id="090her_name">HARTMANN</field>
+  </object>
+  <object objectid="HARWIN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HARWIN</field>
+    <field id="090her_name">HARWIN</field>
+  </object>
+  <object objectid="HEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HEC</field>
+    <field id="090her_name">HEC</field>
+  </object>
+  <object objectid="HIROSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HIROSE</field>
+    <field id="090her_name">HIROSE</field>
+  </object>
+  <object objectid="HONEYWELL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HONEYWELL</field>
+    <field id="090her_name">HONEYWELL</field>
+  </object>
+  <object objectid="HYPERTAC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">HYPERTAC</field>
+    <field id="090her_name">HYPERTAC</field>
+  </object>
+  <object objectid="Harting" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Harting</field>
+    <field id="090her_name">Harting</field>
+  </object>
+  <object objectid="IDT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">IDT</field>
+    <field id="090her_name">IDT</field>
+  </object>
+  <object objectid="INFINEON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">INFINEON</field>
+    <field id="090her_name">INFINEON</field>
+  </object>
+  <object objectid="INTEL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">INTEL</field>
+    <field id="090her_name">INTEL</field>
+  </object>
+  <object objectid="INTERSIL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">INTERSIL</field>
+    <field id="090her_name">INTERSIL</field>
+  </object>
+  <object objectid="IR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">IR</field>
+    <field id="090her_name">IR</field>
+  </object>
+  <object objectid="IRC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">IRC</field>
+    <field id="090her_name">IRC</field>
+  </object>
+  <object objectid="IRF" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">IRF</field>
+    <field id="090her_name">IRF</field>
+  </object>
+  <object objectid="ISABELLENHUTTE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ISABELLENHUTTE</field>
+    <field id="090her_name">ISABELLENHUTTE</field>
+  </object>
+  <object objectid="ISSI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ISSI</field>
+    <field id="090her_name">ISSI</field>
+  </object>
+  <object objectid="IXYS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">IXYS</field>
+    <field id="090her_name">IXYS</field>
+  </object>
+  <object objectid="JAE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">JAE</field>
+    <field id="090her_name">JAE</field>
+  </object>
+  <object objectid="JAUCH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">JAUCH</field>
+    <field id="090her_name">JAUCH</field>
+  </object>
+  <object objectid="JOHANSON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">JOHANSON</field>
+    <field id="090her_name">JOHANSON</field>
+  </object>
+  <object objectid="JOHANSON TECHNOLOGY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">JOHANSON TECHNOLOGY</field>
+    <field id="090her_name">JOHANSON TECHNOLOGY</field>
+  </object>
+  <object objectid="JST" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">JST</field>
+    <field id="090her_name">JST</field>
+  </object>
+  <object objectid="KAMAYA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KAMAYA</field>
+    <field id="090her_name">KAMAYA</field>
+  </object>
+  <object objectid="KEMET" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KEMET</field>
+    <field id="090her_name">KEMET</field>
+  </object>
+  <object objectid="KEYSTONE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KEYSTONE</field>
+    <field id="090her_name">KEYSTONE</field>
+  </object>
+  <object objectid="KINGBRIGHT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KINGBRIGHT</field>
+    <field id="090her_name">KINGBRIGHT</field>
+  </object>
+  <object objectid="KME" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KME</field>
+    <field id="090her_name">KME</field>
+  </object>
+  <object objectid="KNITTER-SWITCH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KNITTER-SWITCH</field>
+    <field id="090her_name">KNITTER-SWITCH</field>
+  </object>
+  <object objectid="KOA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KOA</field>
+    <field id="090her_name">KOA</field>
+  </object>
+  <object objectid="KOA SPEER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KOA SPEER</field>
+    <field id="090her_name">KOA SPEER</field>
+  </object>
+  <object objectid="KONTEK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KONTEK</field>
+    <field id="090her_name">KONTEK</field>
+  </object>
+  <object objectid="KYOCERA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KYOCERA</field>
+    <field id="090her_name">KYOCERA</field>
+  </object>
+  <object objectid="KYOCERA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KYOCERA</field>
+    <field id="090her_name">KYOCERA</field>
+  </object>
+  <object objectid="KYOCERA AVX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">KYOCERA AVX</field>
+    <field id="090her_name">KYOCERA AVX</field>
+  </object>
+  <object objectid="LAIR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LAIR</field>
+    <field id="090her_name">LAIR</field>
+  </object>
+  <object objectid="LAMBDA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LAMBDA</field>
+    <field id="090her_name">LAMBDA</field>
+  </object>
+  <object objectid="LARITECK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LARITECK</field>
+    <field id="090her_name">LARITECK</field>
+  </object>
+  <object objectid="LATTICE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LATTICE</field>
+    <field id="090her_name">LATTICE</field>
+  </object>
+  <object objectid="LEM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LEM</field>
+    <field id="090her_name">LEM</field>
+  </object>
+  <object objectid="LINEAR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LINEAR</field>
+    <field id="090her_name">LINEAR</field>
+  </object>
+  <object objectid="LITTELFUSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LITTELFUSE</field>
+    <field id="090her_name">LITTELFUSE</field>
+  </object>
+  <object objectid="LITTLEFUSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LITTLEFUSE</field>
+    <field id="090her_name">LITTLEFUSE</field>
+  </object>
+  <object objectid="LORANGER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LORANGER</field>
+    <field id="090her_name">LORANGER</field>
+  </object>
+  <object objectid="LORANGER CLAM-SHELL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">LORANGER CLAM-SHELL</field>
+    <field id="090her_name">LORANGER CLAM-SHELL</field>
+  </object>
+  <object objectid="Lem" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Lem</field>
+    <field id="090her_name">Lem</field>
+  </object>
+  <object objectid="MACRONIX_x000D_
+MACRONIX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MACRONIX_x000D_
+MACRONIX</field>
+    <field id="090her_name">MACRONIX_x000D_
+MACRONIX</field>
+  </object>
+  <object objectid="MAGNETICA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MAGNETICA</field>
+    <field id="090her_name">MAGNETICA</field>
+  </object>
+  <object objectid="MALUSCK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MALUSCK</field>
+    <field id="090her_name">MALUSCK</field>
+  </object>
+  <object objectid="MARVELL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MARVELL</field>
+    <field id="090her_name">MARVELL</field>
+  </object>
+  <object objectid="MATSUSHITA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MATSUSHITA</field>
+    <field id="090her_name">MATSUSHITA</field>
+  </object>
+  <object objectid="MAXIM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MAXIM</field>
+    <field id="090her_name">MAXIM</field>
+  </object>
+  <object objectid="MAXIM INTEGRATED" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MAXIM INTEGRATED</field>
+    <field id="090her_name">MAXIM INTEGRATED</field>
+  </object>
+  <object objectid="MCC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MCC</field>
+    <field id="090her_name">MCC</field>
+  </object>
+  <object objectid="MCC SEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MCC SEMI</field>
+    <field id="090her_name">MCC SEMI</field>
+  </object>
+  <object objectid="MCCSEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MCCSEMI</field>
+    <field id="090her_name">MCCSEMI</field>
+  </object>
+  <object objectid="MCS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MCS</field>
+    <field id="090her_name">MCS</field>
+  </object>
+  <object objectid="MEDER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MEDER</field>
+    <field id="090her_name">MEDER</field>
+  </object>
+  <object objectid="MEGGIT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MEGGIT</field>
+    <field id="090her_name">MEGGIT</field>
+  </object>
+  <object objectid="MELEXIS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MELEXIS</field>
+    <field id="090her_name">MELEXIS</field>
+  </object>
+  <object objectid="MENTOR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MENTOR</field>
+    <field id="090her_name">MENTOR</field>
+  </object>
+  <object objectid="MH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MH</field>
+    <field id="090her_name">MH</field>
+  </object>
+  <object objectid="MICREL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICREL</field>
+    <field id="090her_name">MICREL</field>
+  </object>
+  <object objectid="MICRO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICRO</field>
+    <field id="090her_name">MICRO</field>
+  </object>
+  <object objectid="MICRO COMMERCIAL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICRO COMMERCIAL</field>
+    <field id="090her_name">MICRO COMMERCIAL</field>
+  </object>
+  <object objectid="MICROCHIP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICROCHIP</field>
+    <field id="090her_name">MICROCHIP</field>
+  </object>
+  <object objectid="MICRON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICRON</field>
+    <field id="090her_name">MICRON</field>
+  </object>
+  <object objectid="MICROSEMI CORPORATION" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICROSEMI CORPORATION</field>
+    <field id="090her_name">MICROSEMI CORPORATION</field>
+  </object>
+  <object objectid="MICROSPIRE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICROSPIRE</field>
+    <field id="090her_name">MICROSPIRE</field>
+  </object>
+  <object objectid="MICROTEMP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MICROTEMP</field>
+    <field id="090her_name">MICROTEMP</field>
+  </object>
+  <object objectid="MINI-CIRCUITS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MINI-CIRCUITS</field>
+    <field id="090her_name">MINI-CIRCUITS</field>
+  </object>
+  <object objectid="MOLEX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MOLEX</field>
+    <field id="090her_name">MOLEX</field>
+  </object>
+  <object objectid="MORNSUN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MORNSUN</field>
+    <field id="090her_name">MORNSUN</field>
+  </object>
+  <object objectid="MOTOROLA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MOTOROLA</field>
+    <field id="090her_name">MOTOROLA</field>
+  </object>
+  <object objectid="MPS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MPS</field>
+    <field id="090her_name">MPS</field>
+  </object>
+  <object objectid="MULTICOMP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MULTICOMP</field>
+    <field id="090her_name">MULTICOMP</field>
+  </object>
+  <object objectid="MULTIMEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MULTIMEC</field>
+    <field id="090her_name">MULTIMEC</field>
+  </object>
+  <object objectid="MURATA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MURATA</field>
+    <field id="090her_name">MURATA</field>
+  </object>
+  <object objectid="MXG" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">MXG</field>
+    <field id="090her_name">MXG</field>
+  </object>
+  <object objectid="Molex" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Molex</field>
+    <field id="090her_name">Molex</field>
+  </object>
+  <object objectid="NATIONAL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NATIONAL</field>
+    <field id="090her_name">NATIONAL</field>
+  </object>
+  <object objectid="NDK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NDK</field>
+    <field id="090her_name">NDK</field>
+  </object>
+  <object objectid="NEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NEC</field>
+    <field id="090her_name">NEC</field>
+  </object>
+  <object objectid="NEOHM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NEOHM</field>
+    <field id="090her_name">NEOHM</field>
+  </object>
+  <object objectid="NEWHAVEN DISPLAY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NEWHAVEN DISPLAY</field>
+    <field id="090her_name">NEWHAVEN DISPLAY</field>
+  </object>
+  <object objectid="NEWPORT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NEWPORT</field>
+    <field id="090her_name">NEWPORT</field>
+  </object>
+  <object objectid="NEXPERIA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NEXPERIA</field>
+    <field id="090her_name">NEXPERIA</field>
+  </object>
+  <object objectid="NIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NIC</field>
+    <field id="090her_name">NIC</field>
+  </object>
+  <object objectid="NICHICON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NICHICON</field>
+    <field id="090her_name">NICHICON</field>
+  </object>
+  <object objectid="NIPPON CHEMI-CON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NIPPON CHEMI-CON</field>
+    <field id="090her_name">NIPPON CHEMI-CON</field>
+  </object>
+  <object objectid="NIPPON-CHEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NIPPON-CHEMI</field>
+    <field id="090her_name">NIPPON-CHEMI</field>
+  </object>
+  <object objectid="NOVACAP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NOVACAP</field>
+    <field id="090her_name">NOVACAP</field>
+  </object>
+  <object objectid="NUVAL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NUVAL</field>
+    <field id="090her_name">NUVAL</field>
+  </object>
+  <object objectid="NXP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">NXP</field>
+    <field id="090her_name">NXP</field>
+  </object>
+  <object objectid="Nichicon" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Nichicon</field>
+    <field id="090her_name">Nichicon</field>
+  </object>
+  <object objectid="OHMITE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">OHMITE</field>
+    <field id="090her_name">OHMITE</field>
+  </object>
+  <object objectid="OMRON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">OMRON</field>
+    <field id="090her_name">OMRON</field>
+  </object>
+  <object objectid="ON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ON</field>
+    <field id="090her_name">ON</field>
+  </object>
+  <object objectid="ON SEMICON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ON SEMICON</field>
+    <field id="090her_name">ON SEMICON</field>
+  </object>
+  <object objectid="ON SEMICONDUCTOR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ON SEMICONDUCTOR</field>
+    <field id="090her_name">ON SEMICONDUCTOR</field>
+  </object>
+  <object objectid="ON-SEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ON-SEMI</field>
+    <field id="090her_name">ON-SEMI</field>
+  </object>
+  <object objectid="ONSEMI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ONSEMI</field>
+    <field id="090her_name">ONSEMI</field>
+  </object>
+  <object objectid="OSRAM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">OSRAM</field>
+    <field id="090her_name">OSRAM</field>
+  </object>
+  <object objectid="OSTERRATH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">OSTERRATH</field>
+    <field id="090her_name">OSTERRATH</field>
+  </object>
+  <object objectid="OXLEY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">OXLEY</field>
+    <field id="090her_name">OXLEY</field>
+  </object>
+  <object objectid="P-DUKE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">P-DUKE</field>
+    <field id="090her_name">P-DUKE</field>
+  </object>
+  <object objectid="PANASONIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PANASONIC</field>
+    <field id="090her_name">PANASONIC</field>
+  </object>
+  <object objectid="PANDUIT" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PANDUIT</field>
+    <field id="090her_name">PANDUIT</field>
+  </object>
+  <object objectid="PAS ELECTRONICS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PAS ELECTRONICS</field>
+    <field id="090her_name">PAS ELECTRONICS</field>
+  </object>
+  <object objectid="PEM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PEM</field>
+    <field id="090her_name">PEM</field>
+  </object>
+  <object objectid="PERICOM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PERICOM</field>
+    <field id="090her_name">PERICOM</field>
+  </object>
+  <object objectid="PHILIPS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PHILIPS</field>
+    <field id="090her_name">PHILIPS</field>
+  </object>
+  <object objectid="PHOENIX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PHOENIX</field>
+    <field id="090her_name">PHOENIX</field>
+  </object>
+  <object objectid="PHYCOMP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PHYCOMP</field>
+    <field id="090her_name">PHYCOMP</field>
+  </object>
+  <object objectid="PLASTRONIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PLASTRONIC</field>
+    <field id="090her_name">PLASTRONIC</field>
+  </object>
+  <object objectid="PLASTRONICS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PLASTRONICS</field>
+    <field id="090her_name">PLASTRONICS</field>
+  </object>
+  <object objectid="PMA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PMA</field>
+    <field id="090her_name">PMA</field>
+  </object>
+  <object objectid="POSITRONIC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">POSITRONIC</field>
+    <field id="090her_name">POSITRONIC</field>
+  </object>
+  <object objectid="PRECI-DIP" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PRECI-DIP</field>
+    <field id="090her_name">PRECI-DIP</field>
+  </object>
+  <object objectid="PULSE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PULSE</field>
+    <field id="090her_name">PULSE</field>
+  </object>
+  <object objectid="PULSE ENG" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PULSE ENG</field>
+    <field id="090her_name">PULSE ENG</field>
+  </object>
+  <object objectid="PULSE ENG." catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">PULSE ENG.</field>
+    <field id="090her_name">PULSE ENG.</field>
+  </object>
+  <object objectid="Pulse Electronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Pulse Electronics</field>
+    <field id="090her_name">Pulse Electronics</field>
+  </object>
+  <object objectid="RADIALL" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RADIALL</field>
+    <field id="090her_name">RADIALL</field>
+  </object>
+  <object objectid="RAYCHEM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RAYCHEM</field>
+    <field id="090her_name">RAYCHEM</field>
+  </object>
+  <object objectid="RECOM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RECOM</field>
+    <field id="090her_name">RECOM</field>
+  </object>
+  <object objectid="RENESAS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RENESAS</field>
+    <field id="090her_name">RENESAS</field>
+  </object>
+  <object objectid="REVOX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">REVOX</field>
+    <field id="090her_name">REVOX</field>
+  </object>
+  <object objectid="RHOM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RHOM</field>
+    <field id="090her_name">RHOM</field>
+  </object>
+  <object objectid="RICHCO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RICHCO</field>
+    <field id="090her_name">RICHCO</field>
+  </object>
+  <object objectid="ROHM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ROHM</field>
+    <field id="090her_name">ROHM</field>
+  </object>
+  <object objectid="ROXBURGH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ROXBURGH</field>
+    <field id="090her_name">ROXBURGH</field>
+  </object>
+  <object objectid="RUBYCON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">RUBYCON</field>
+    <field id="090her_name">RUBYCON</field>
+  </object>
+  <object objectid="SAMSUNG" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SAMSUNG</field>
+    <field id="090her_name">SAMSUNG</field>
+  </object>
+  <object objectid="SAMTEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SAMTEC</field>
+    <field id="090her_name">SAMTEC</field>
+  </object>
+  <object objectid="SANKEN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SANKEN</field>
+    <field id="090her_name">SANKEN</field>
+  </object>
+  <object objectid="SANYO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SANYO</field>
+    <field id="090her_name">SANYO</field>
+  </object>
+  <object objectid="SCHAFFNER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SCHAFFNER</field>
+    <field id="090her_name">SCHAFFNER</field>
+  </object>
+  <object objectid="SCHRACK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SCHRACK</field>
+    <field id="090her_name">SCHRACK</field>
+  </object>
+  <object objectid="SCHUETZINGER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SCHUETZINGER</field>
+    <field id="090her_name">SCHUETZINGER</field>
+  </object>
+  <object objectid="SCHURTER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SCHURTER</field>
+    <field id="090her_name">SCHURTER</field>
+  </object>
+  <object objectid="SELECOM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SELECOM</field>
+    <field id="090her_name">SELECOM</field>
+  </object>
+  <object objectid="SENSATA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SENSATA</field>
+    <field id="090her_name">SENSATA</field>
+  </object>
+  <object objectid="SHINDENGEN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SHINDENGEN</field>
+    <field id="090her_name">SHINDENGEN</field>
+  </object>
+  <object objectid="SIEMENS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SIEMENS</field>
+    <field id="090her_name">SIEMENS</field>
+  </object>
+  <object objectid="SIEMENS-MATSUSHITA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SIEMENS-MATSUSHITA</field>
+    <field id="090her_name">SIEMENS-MATSUSHITA</field>
+  </object>
+  <object objectid="SILABS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SILABS</field>
+    <field id="090her_name">SILABS</field>
+  </object>
+  <object objectid="SILICON LABS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SILICON LABS</field>
+    <field id="090her_name">SILICON LABS</field>
+  </object>
+  <object objectid="SILICONIX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SILICONIX</field>
+    <field id="090her_name">SILICONIX</field>
+  </object>
+  <object objectid="SITIME" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SITIME</field>
+    <field id="090her_name">SITIME</field>
+  </object>
+  <object objectid="SKYWORKS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SKYWORKS</field>
+    <field id="090her_name">SKYWORKS</field>
+  </object>
+  <object objectid="SMITHS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SMITHS</field>
+    <field id="090her_name">SMITHS</field>
+  </object>
+  <object objectid="SMSC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SMSC</field>
+    <field id="090her_name">SMSC</field>
+  </object>
+  <object objectid="SPANSION" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SPANSION</field>
+    <field id="090her_name">SPANSION</field>
+  </object>
+  <object objectid="SRA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SRA</field>
+    <field id="090her_name">SRA</field>
+  </object>
+  <object objectid="ST" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ST</field>
+    <field id="090her_name">ST</field>
+  </object>
+  <object objectid="STACKPOLE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">STACKPOLE</field>
+    <field id="090her_name">STACKPOLE</field>
+  </object>
+  <object objectid="STEWART" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">STEWART</field>
+    <field id="090her_name">STEWART</field>
+  </object>
+  <object objectid="STM" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">STM</field>
+    <field id="090her_name">STM</field>
+  </object>
+  <object objectid="SULLINS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SULLINS</field>
+    <field id="090her_name">SULLINS</field>
+  </object>
+  <object objectid="SUMIDA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SUMIDA</field>
+    <field id="090her_name">SUMIDA</field>
+  </object>
+  <object objectid="SUNNY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SUNNY</field>
+    <field id="090her_name">SUNNY</field>
+  </object>
+  <object objectid="SUPERTEX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SUPERTEX</field>
+    <field id="090her_name">SUPERTEX</field>
+  </object>
+  <object objectid="SUSUMU" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SUSUMU</field>
+    <field id="090her_name">SUSUMU</field>
+  </object>
+  <object objectid="SYFER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SYFER</field>
+    <field id="090her_name">SYFER</field>
+  </object>
+  <object objectid="SiLABS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">SiLABS</field>
+    <field id="090her_name">SiLABS</field>
+  </object>
+  <object objectid="Stackpole Electronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Stackpole Electronics</field>
+    <field id="090her_name">Stackpole Electronics</field>
+  </object>
+  <object objectid="Stewart Connector" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Stewart Connector</field>
+    <field id="090her_name">Stewart Connector</field>
+  </object>
+  <object objectid="Susumu" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Susumu</field>
+    <field id="090her_name">Susumu</field>
+  </object>
+  <object objectid="T-GLOBAL TECHNOLOGY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">T-GLOBAL TECHNOLOGY</field>
+    <field id="090her_name">T-GLOBAL TECHNOLOGY</field>
+  </object>
+  <object objectid="TAIYO YUDEN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TAIYO YUDEN</field>
+    <field id="090her_name">TAIYO YUDEN</field>
+  </object>
+  <object objectid="TAYO YUDEN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TAYO YUDEN</field>
+    <field id="090her_name">TAYO YUDEN</field>
+  </object>
+  <object objectid="TDK" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TDK</field>
+    <field id="090her_name">TDK</field>
+  </object>
+  <object objectid="TDK-LAMBDA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TDK-LAMBDA</field>
+    <field id="090her_name">TDK-LAMBDA</field>
+  </object>
+  <object objectid="TE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TE</field>
+    <field id="090her_name">TE</field>
+  </object>
+  <object objectid="TE CONNECTIVITY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TE CONNECTIVITY</field>
+    <field id="090her_name">TE CONNECTIVITY</field>
+  </object>
+  <object objectid="TE Connectivity" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TE Connectivity</field>
+    <field id="090her_name">TE Connectivity</field>
+  </object>
+  <object objectid="TE-CONNECTIVITY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TE-CONNECTIVITY</field>
+    <field id="090her_name">TE-CONNECTIVITY</field>
+  </object>
+  <object objectid="TELETEC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TELETEC</field>
+    <field id="090her_name">TELETEC</field>
+  </object>
+  <object objectid="TEXAS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TEXAS</field>
+    <field id="090her_name">TEXAS</field>
+  </object>
+  <object objectid="TOKO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TOKO</field>
+    <field id="090her_name">TOKO</field>
+  </object>
+  <object objectid="TOSHIBA" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TOSHIBA</field>
+    <field id="090her_name">TOSHIBA</field>
+  </object>
+  <object objectid="TRACO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TRACO</field>
+    <field id="090her_name">TRACO</field>
+  </object>
+  <object objectid="TTelectronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TTelectronics</field>
+    <field id="090her_name">TTelectronics</field>
+  </object>
+  <object objectid="TYCO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">TYCO</field>
+    <field id="090her_name">TYCO</field>
+  </object>
+  <object objectid="Ttelectronics" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Ttelectronics</field>
+    <field id="090her_name">Ttelectronics</field>
+  </object>
+  <object objectid="UNITED CHEMI-CON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">UNITED CHEMI-CON</field>
+    <field id="090her_name">UNITED CHEMI-CON</field>
+  </object>
+  <object objectid="UNITED_CHEMI-CON" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">UNITED_CHEMI-CON</field>
+    <field id="090her_name">UNITED_CHEMI-CON</field>
+  </object>
+  <object objectid="UNITRODE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">UNITRODE</field>
+    <field id="090her_name">UNITRODE</field>
+  </object>
+  <object objectid="VAC" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VAC</field>
+    <field id="090her_name">VAC</field>
+  </object>
+  <object objectid="VERO TECHNOLOGIES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VERO TECHNOLOGIES</field>
+    <field id="090her_name">VERO TECHNOLOGIES</field>
+  </object>
+  <object objectid="VICOR" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VICOR</field>
+    <field id="090her_name">VICOR</field>
+  </object>
+  <object objectid="VISHAY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VISHAY</field>
+    <field id="090her_name">VISHAY</field>
+  </object>
+  <object objectid="VISHAY" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VISHAY</field>
+    <field id="090her_name">VISHAY</field>
+  </object>
+  <object objectid="VISHAY - ATE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VISHAY - ATE</field>
+    <field id="090her_name">VISHAY - ATE</field>
+  </object>
+  <object objectid="VISHAY ROEDERSTEIN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">VISHAY ROEDERSTEIN</field>
+    <field id="090her_name">VISHAY ROEDERSTEIN</field>
+  </object>
+  <object objectid="Vishay" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">Vishay</field>
+    <field id="090her_name">Vishay</field>
+  </object>
+  <object objectid="WAGO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WAGO</field>
+    <field id="090her_name">WAGO</field>
+  </object>
+  <object objectid="WAKEFIELD" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WAKEFIELD</field>
+    <field id="090her_name">WAKEFIELD</field>
+  </object>
+  <object objectid="WAKEFIELD+ELES" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WAKEFIELD+ELES</field>
+    <field id="090her_name">WAKEFIELD+ELES</field>
+  </object>
+  <object objectid="WALSIN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WALSIN</field>
+    <field id="090her_name">WALSIN</field>
+  </object>
+  <object objectid="WALSIN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WALSIN</field>
+    <field id="090her_name">WALSIN</field>
+  </object>
+  <object objectid="WELLS" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WELLS</field>
+    <field id="090her_name">WELLS</field>
+  </object>
+  <object objectid="WELLS-CTI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WELLS-CTI</field>
+    <field id="090her_name">WELLS-CTI</field>
+  </object>
+  <object objectid="WELWYN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WELWYN</field>
+    <field id="090her_name">WELWYN</field>
+  </object>
+  <object objectid="WELWYN - ATE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WELWYN - ATE</field>
+    <field id="090her_name">WELWYN - ATE</field>
+  </object>
+  <object objectid="WELWYN-ATE" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WELWYN-ATE</field>
+    <field id="090her_name">WELWYN-ATE</field>
+  </object>
+  <object objectid="WIELAND" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WIELAND</field>
+    <field id="090her_name">WIELAND</field>
+  </object>
+  <object objectid="WURTH" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">WURTH</field>
+    <field id="090her_name">WURTH</field>
+  </object>
+  <object objectid="XP-POWER" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">XP-POWER</field>
+    <field id="090her_name">XP-POWER</field>
+  </object>
+  <object objectid="YAGEO" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">YAGEO</field>
+    <field id="090her_name">YAGEO</field>
+  </object>
+  <object objectid="YAMAICHI" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">YAMAICHI</field>
+    <field id="090her_name">YAMAICHI</field>
+  </object>
+  <object objectid="YUDEN" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">YUDEN</field>
+    <field id="090her_name">YUDEN</field>
+  </object>
+  <object objectid="ZETEX" catalog="VV" class="090">
+    <field id="090obj_skn">VV</field>
+    <field id="090obj_id">ZETEX</field>
+    <field id="090her_name">ZETEX</field>
+  </object>
+</data>

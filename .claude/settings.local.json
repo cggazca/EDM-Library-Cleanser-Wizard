@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python generate_xml_from_excel.py:*)",
+      "Bash(python:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

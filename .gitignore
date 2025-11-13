@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Database files
+*.mdb
+
+# Archives
+*.zip
+*.rar
+wetransfer_progetti-eles_2025-09-08_1019/
+
+# EDM Output directories
+EDM_Output_*/
+
+# Excel backup/temp files
+*- Copy.xlsx
+~$*.xlsx
+~$*.xls
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

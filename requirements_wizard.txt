@@ -1,0 +1,7 @@
+pandas>=2.0.0
+sqlalchemy>=2.0.0
+xlsxwriter>=3.0.0
+pyodbc>=4.0.0
+PyQt5>=5.15.0
+pyinstaller>=5.0.0
+anthropic>=0.39.0

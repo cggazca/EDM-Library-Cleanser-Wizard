@@ -2039,25 +2039,20 @@ class SupplyFrameReviewPage(QWizardPage):
         main_layout = QVBoxLayout(scroll_widget)
         main_layout.setSpacing(10)  # Add spacing between sections
 
-        # Section 1: Load CSV (expanded by default)
+        # Section 1: Load CSV
         self.csv_group = self.create_csv_section(main_layout)
 
-        # Section 2: Review Partial Matches (collapsed by default)
+        # Section 2: Review Partial Matches (give most space)
         self.review_group = self.create_review_section(main_layout)
-        self.review_group.setChecked(False)
 
-        # Section 3: Manufacturer Normalization (collapsed by default)
+        # Section 3: Manufacturer Normalization
         self.norm_group = self.create_normalization_section(main_layout)
-        self.norm_group.setChecked(False)
 
-        # Section 4: Comparison View (collapsed by default)
+        # Section 4: Comparison View
         self.comp_group = self.create_comparison_section(main_layout)
-        self.comp_group.setChecked(False)
 
         # Section 5: Final Actions
         self.create_actions_section(main_layout)
-
-        main_layout.addStretch()  # Push everything to the top
 
         scroll.setWidget(scroll_widget)
 
@@ -2067,7 +2062,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def create_csv_section(self, parent_layout):
         """Section 1: Load SearchAndAssign CSV"""
-        csv_group = CollapsibleGroupBox("1. Load SearchAndAssign Results")
+        csv_group = QGroupBox("1. Load SearchAndAssign Results")
         csv_layout = QVBoxLayout()
 
         # File browser
@@ -2093,13 +2088,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.csv_summary.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px;")
         csv_layout.addWidget(self.csv_summary)
 
-        csv_group.setContentLayout(csv_layout)
-        parent_layout.addWidget(csv_group)
+        csv_group.setLayout(csv_layout)
+        parent_layout.addWidget(csv_group, 0)  # 0 = no stretch
         return csv_group
 
     def create_review_section(self, parent_layout):
         """Section 2: Review Partial Matches"""
-        review_group = CollapsibleGroupBox("2. Review Partial Matches")
+        review_group = QGroupBox("2. Review Partial Matches")
         review_layout = QHBoxLayout()
 
         # Left panel: Parts list
@@ -2134,11 +2129,12 @@ class SupplyFrameReviewPage(QWizardPage):
         self.auto_select_btn.setToolTip(
             "Automatically selects the best match based on string similarity.\n\n"
             "How it works:\n"
-            "• Uses difflib to compare part numbers character-by-character\n"
-            "• Calculates similarity score (0-100%) for each match\n"
-            "• Selects the match with highest similarity score\n"
+            "• Uses difflib to compare both MFG and MFG PN\n"
+            "• Weighted scoring: 60% part number + 40% manufacturer\n"
+            "• Calculates combined similarity (0-100%) for each match\n"
+            "• Selects the match with highest combined score\n"
             "• Fast and deterministic (no AI/API calls)\n"
-            "• Best for exact or near-exact part number matches"
+            "• Best for exact or near-exact matches"
         )
         bulk_layout.addWidget(self.auto_select_btn)
 
@@ -2190,13 +2186,13 @@ class SupplyFrameReviewPage(QWizardPage):
         splitter.setSizes([400, 600])
 
         review_layout.addWidget(splitter)
-        review_group.setContentLayout(review_layout)
-        parent_layout.addWidget(review_group)
+        review_group.setLayout(review_layout)
+        parent_layout.addWidget(review_group, 3)  # Give most space to review section
         return review_group
 
     def create_normalization_section(self, parent_layout):
         """Section 3: Manufacturer Normalization"""
-        norm_group = CollapsibleGroupBox("3. Manufacturer Normalization")
+        norm_group = QGroupBox("3. Manufacturer Normalization")
         norm_layout = QVBoxLayout()
 
         # AI button
@@ -2218,13 +2214,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
 
-        norm_group.setContentLayout(norm_layout)
-        parent_layout.addWidget(norm_group)
+        norm_group.setLayout(norm_layout)
+        parent_layout.addWidget(norm_group, 1)  # Give moderate space to normalization
         return norm_group
 
     def create_comparison_section(self, parent_layout):
         """Section 4: Comparison View"""
-        comp_group = CollapsibleGroupBox("4. Review Changes")
+        comp_group = QGroupBox("4. Review Changes")
         comp_layout = QVBoxLayout()
 
         # Summary
@@ -2261,8 +2257,8 @@ class SupplyFrameReviewPage(QWizardPage):
         tables_layout.addWidget(new_widget)
         comp_layout.addLayout(tables_layout)
 
-        comp_group.setContentLayout(comp_layout)
-        parent_layout.addWidget(comp_group)
+        comp_group.setLayout(comp_layout)
+        parent_layout.addWidget(comp_group, 2)  # Give good space to comparison view
         return comp_group
 
     def create_actions_section(self, parent_layout):
@@ -2590,7 +2586,7 @@ class SupplyFrameReviewPage(QWizardPage):
             self.none_correct_checkbox.setChecked(False)
 
     def auto_select_highest(self):
-        """Auto-select match with highest similarity using difflib"""
+        """Auto-select match with highest similarity using difflib (MFG + MFG PN)"""
         from difflib import SequenceMatcher
 
         selected_count = 0
@@ -2599,6 +2595,7 @@ class SupplyFrameReviewPage(QWizardPage):
                 continue
 
             original_pn = part['PartNumber'].upper().strip()
+            original_mfg = part['ManufacturerName'].upper().strip()
             best_match = None
             best_similarity = 0.0
 
@@ -2609,14 +2606,20 @@ class SupplyFrameReviewPage(QWizardPage):
                     match_pn, match_mfg = match.split('@', 1)
                 else:
                     match_pn = match
+                    match_mfg = ""
 
                 match_pn = match_pn.upper().strip()
+                match_mfg = match_mfg.upper().strip()
 
-                # Calculate similarity ratio
-                similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+                # Calculate combined similarity (60% part number, 40% manufacturer)
+                pn_similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+                mfg_similarity = SequenceMatcher(None, original_mfg, match_mfg).ratio() if match_mfg else 0
 
-                if similarity > best_similarity:
-                    best_similarity = similarity
+                # Weighted average
+                combined_similarity = (pn_similarity * 0.6) + (mfg_similarity * 0.4)
+
+                if combined_similarity > best_similarity:
+                    best_similarity = combined_similarity
                     best_match = match
 
             if best_match:

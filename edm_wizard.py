@@ -38,6 +38,12 @@ try:
 except ImportError:
     ANTHROPIC_AVAILABLE = False
 
+try:
+    from fuzzywuzzy import fuzz, process
+    FUZZYWUZZY_AVAILABLE = True
+except ImportError:
+    FUZZYWUZZY_AVAILABLE = False
+
 
 class CollapsibleGroupBox(QGroupBox):
     """A QGroupBox that can be collapsed/expanded by clicking the title"""
@@ -1952,9 +1958,9 @@ Only return the JSON, no other text."""
 
 
 class ManufacturerNormalizationAIThread(QThread):
-    """Background thread for AI-powered manufacturer normalization"""
+    """Background thread for hybrid fuzzy+AI manufacturer normalization"""
     progress = pyqtSignal(str)
-    finished = pyqtSignal(dict)  # variations -> canonical_name mappings
+    finished = pyqtSignal(dict, dict)  # (normalizations, reasoning_map)
     error = pyqtSignal(str)
 
     def __init__(self, api_key, all_manufacturers, supplyframe_manufacturers):
@@ -1965,15 +1971,53 @@ class ManufacturerNormalizationAIThread(QThread):
 
     def run(self):
         try:
-            self.progress.emit("🤖 Analyzing manufacturer variations...")
+            # Phase 1: Fuzzy matching pre-filter
+            self.progress.emit("🔍 Phase 1: Fuzzy matching analysis...")
+            fuzzy_matches = {}
+            reasoning_map = {}
 
-            client = Anthropic(api_key=self.api_key)
+            if FUZZYWUZZY_AVAILABLE and self.supplyframe_manufacturers:
+                for user_mfg in self.all_manufacturers:
+                    # Find best match in SupplyFrame manufacturers
+                    best_match = process.extractOne(
+                        user_mfg,
+                        self.supplyframe_manufacturers,
+                        scorer=fuzz.token_sort_ratio
+                    )
 
-            # Create prompt
-            prompt = f"""Analyze these manufacturer names and detect variations that should be normalized.
+                    if best_match:
+                        canonical, score = best_match[0], best_match[1]
 
-Manufacturers from user data:
-{json.dumps(sorted(self.all_manufacturers), indent=2)}
+                        # High confidence matches (>90%): auto-accept
+                        if score >= 90 and user_mfg != canonical:
+                            fuzzy_matches[user_mfg] = canonical
+                            reasoning_map[user_mfg] = {
+                                'method': 'fuzzy',
+                                'score': score,
+                                'reasoning': f"High confidence fuzzy match ({score}% similarity)"
+                            }
+                        # Medium confidence matches (70-89%): send to AI for validation
+                        elif 70 <= score < 90 and user_mfg != canonical:
+                            # Will be validated by AI in phase 2
+                            pass
+
+            self.progress.emit(f"✓ Phase 1 complete: {len(fuzzy_matches)} high-confidence matches found")
+
+            # Phase 2: AI analysis for ambiguous cases
+            if ANTHROPIC_AVAILABLE and self.api_key:
+                self.progress.emit("🤖 Phase 2: AI validation of ambiguous cases...")
+
+                # Collect manufacturers that weren't auto-matched by fuzzy
+                unmatched_mfgs = [m for m in self.all_manufacturers if m not in fuzzy_matches]
+
+                if unmatched_mfgs:
+                    client = Anthropic(api_key=self.api_key)
+
+                    # Create prompt for AI to analyze remaining manufacturers
+                    prompt = f"""Analyze these manufacturer names and detect variations that should be normalized.
+
+Manufacturers needing analysis:
+{json.dumps(sorted(unmatched_mfgs), indent=2)}
 
 SupplyFrame canonical manufacturer names (prefer these):
 {json.dumps(sorted(self.supplyframe_manufacturers), indent=2)}
@@ -1983,32 +2027,52 @@ Instructions:
 2. Detect abbreviations, acquired companies, and alternate spellings
 3. Map each variation to the canonical SupplyFrame name when available
 4. For companies not in SupplyFrame, suggest the most complete/official name
+5. IMPORTANT: For each mapping, provide a brief reasoning (acquisitions, abbreviations, etc.)
 
-Return a JSON object mapping variations to canonical names:
+Return a JSON object with this structure:
 {{
-    "<variation>": "<canonical_name>",
-    "TI": "Texas Instruments",
-    "EPCOS": "TDK Electronics",
-    ...
+    "normalizations": {{
+        "<variation>": "<canonical_name>",
+        "TI": "Texas Instruments",
+        "EPCOS": "TDK Electronics"
+    }},
+    "reasoning": {{
+        "TI": "Common abbreviation for Texas Instruments",
+        "EPCOS": "EPCOS was acquired by TDK Electronics in 2009"
+    }}
 }}
 
 Only include entries that need normalization. Only return JSON, no other text."""
 
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}]
-            )
+                    response = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=2048,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
 
-            response_text = response.content[0].text.strip()
-            if response_text.startswith('```'):
-                response_text = response_text.split('```')[1]
-                if response_text.startswith('json'):
-                    response_text = response_text[4:]
-                response_text = response_text.strip()
+                    response_text = response.content[0].text.strip()
+                    if response_text.startswith('```'):
+                        response_text = response_text.split('```')[1]
+                        if response_text.startswith('json'):
+                            response_text = response_text[4:]
+                        response_text = response_text.strip()
 
-            normalizations = json.loads(response_text)
-            self.finished.emit(normalizations)
+                    ai_result = json.loads(response_text)
+                    ai_normalizations = ai_result.get('normalizations', {})
+                    ai_reasoning = ai_result.get('reasoning', {})
+
+                    # Merge AI results with fuzzy matches
+                    for variation, canonical in ai_normalizations.items():
+                        fuzzy_matches[variation] = canonical
+                        reasoning_map[variation] = {
+                            'method': 'ai',
+                            'reasoning': ai_reasoning.get(variation, 'AI suggested normalization')
+                        }
+
+                    self.progress.emit(f"✓ Phase 2 complete: {len(ai_normalizations)} AI-validated matches")
+
+            # Emit combined results
+            self.finished.emit(fuzzy_matches, reasoning_map)
 
         except Exception as e:
             self.error.emit(str(e))
@@ -2026,6 +2090,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.search_assign_data = []
         self.parts_needing_review = []
         self.manufacturer_normalizations = {}
+        self.normalization_reasoning = {}  # Store fuzzy/AI reasoning for each normalization
         self.combined_data = []
         self.api_key = None
 
@@ -2241,8 +2306,21 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table = QTableWidget()
         self.norm_table.setColumnCount(4)
         self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
+        # TODO: Implement context menu
+        # self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        # self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
+
+        # Save button
+        save_norm_layout = QHBoxLayout()
+        self.save_normalizations_btn = QPushButton("💾 Save Normalizations")
+        self.save_normalizations_btn.clicked.connect(self.save_normalizations)
+        self.save_normalizations_btn.setEnabled(False)
+        self.save_normalizations_btn.setToolTip("Save manufacturer normalization settings")
+        save_norm_layout.addWidget(self.save_normalizations_btn)
+        save_norm_layout.addStretch()
+        norm_layout.addLayout(save_norm_layout)
 
         norm_group.setContentLayout(norm_layout)
         return norm_group
@@ -2265,6 +2343,9 @@ class SupplyFrameReviewPage(QWizardPage):
         old_layout = QVBoxLayout(old_widget)
         old_layout.addWidget(QLabel("Original Data:"))
         self.old_data_table = QTableWidget()
+        self.old_data_table.setColumnCount(3)
+        self.old_data_table.setHorizontalHeaderLabels(["MFG", "MFG PN", "Description"])
+        self.old_data_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         old_layout.addWidget(self.old_data_table)
 
         # New data
@@ -2272,6 +2353,9 @@ class SupplyFrameReviewPage(QWizardPage):
         new_layout = QVBoxLayout(new_widget)
         new_layout.addWidget(QLabel("Updated Data:"))
         self.new_data_table = QTableWidget()
+        self.new_data_table.setColumnCount(3)
+        self.new_data_table.setHorizontalHeaderLabels(["MFG", "MFG PN", "Description"])
+        self.new_data_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         new_layout.addWidget(self.new_data_table)
 
         # Sync scroll
@@ -3061,9 +3145,10 @@ class SupplyFrameReviewPage(QWizardPage):
         self.ai_norm_thread.error.connect(self.on_ai_norm_error)
         self.ai_norm_thread.start()
 
-    def on_ai_norm_finished(self, normalizations):
-        """Apply AI normalization suggestions"""
+    def on_ai_norm_finished(self, normalizations, reasoning_map):
+        """Apply hybrid fuzzy+AI normalization suggestions"""
         self.manufacturer_normalizations = normalizations
+        self.normalization_reasoning = reasoning_map  # Store reasoning for context menu
 
         # Collect all unique manufacturers from both sources
         all_mfgs = set()
@@ -3116,12 +3201,24 @@ class SupplyFrameReviewPage(QWizardPage):
 
             row_idx += 1
 
-        self.norm_status.setText(f"✓ Found {len(normalizations)} manufacturer variations")
+        # Count fuzzy vs AI matches
+        fuzzy_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'fuzzy')
+        ai_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'ai')
+
+        self.norm_status.setText(
+            f"✓ Found {len(normalizations)} variations "
+            f"({fuzzy_count} fuzzy, {ai_count} AI-validated)"
+        )
         self.norm_status.setStyleSheet("color: green; font-weight: bold;")
         self.ai_normalize_btn.setEnabled(True)
+        self.save_normalizations_btn.setEnabled(True)
 
         QMessageBox.information(self, "Normalization Detected",
-                              f"AI detected {len(normalizations)} manufacturer variations.\n"
+                              f"Hybrid analysis complete!\n\n"
+                              f"• {fuzzy_count} high-confidence fuzzy matches\n"
+                              f"• {ai_count} AI-validated matches\n"
+                              f"• Total: {len(normalizations)} normalizations\n\n"
+                              f"Right-click any row to see detection reasoning.\n"
                               f"Review and adjust as needed.")
 
     def on_ai_norm_error(self, error_msg):
@@ -3440,6 +3537,97 @@ class SupplyFrameReviewPage(QWizardPage):
 
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(final_xml)
+
+    def show_normalization_context_menu(self, position):
+        """Show context menu for normalization table"""
+        row = self.norm_table.rowAt(position.y())
+        if row < 0:
+            return
+
+        # Get the original manufacturer name from this row
+        original_item = self.norm_table.item(row, 1)
+        if not original_item:
+            return
+
+        original_mfg = original_item.text()
+
+        # Check if we have reasoning for this manufacturer
+        if original_mfg not in self.normalization_reasoning:
+            return
+
+        # Create context menu
+        menu = QMenu(self)
+        action = menu.addAction("🔍 Show Detection Reasoning")
+
+        selected_action = menu.exec_(self.norm_table.viewport().mapToGlobal(position))
+
+        if selected_action == action:
+            self.show_normalization_reasoning(original_mfg)
+
+    def show_normalization_reasoning(self, original_mfg):
+        """Show reasoning for manufacturer normalization"""
+        reasoning_data = self.normalization_reasoning.get(original_mfg, {})
+        method = reasoning_data.get('method', 'unknown')
+        reasoning = reasoning_data.get('reasoning', 'No reasoning available')
+
+        # Get canonical name from table
+        for row_idx in range(self.norm_table.rowCount()):
+            orig_item = self.norm_table.item(row_idx, 1)
+            if orig_item and orig_item.text() == original_mfg:
+                canonical_combo = self.norm_table.cellWidget(row_idx, 2)
+                if canonical_combo:
+                    canonical = canonical_combo.currentText()
+                    break
+        else:
+            canonical = self.manufacturer_normalizations.get(original_mfg, 'N/A')
+
+        # Create dialog
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Normalization Detection Reasoning")
+        dialog.setIcon(QMessageBox.Information)
+
+        if method == 'fuzzy':
+            score = reasoning_data.get('score', 0)
+            dialog.setText(f"<b>Detection Method: Fuzzy Matching</b><br><br>"
+                          f"Original: <b>{original_mfg}</b><br>"
+                          f"Normalized to: <b>{canonical}</b><br>"
+                          f"Similarity Score: <b>{score}%</b><br><br>"
+                          f"<b>Reasoning:</b>")
+            dialog.setInformativeText(reasoning)
+        elif method == 'ai':
+            dialog.setText(f"<b>Detection Method: AI Analysis</b><br><br>"
+                          f"Original: <b>{original_mfg}</b><br>"
+                          f"Normalized to: <b>{canonical}</b><br><br>"
+                          f"<b>AI Reasoning:</b>")
+            dialog.setInformativeText(reasoning)
+        else:
+            dialog.setText(f"<b>Original:</b> {original_mfg}<br>"
+                          f"<b>Normalized to:</b> {canonical}")
+            dialog.setInformativeText("No reasoning information available")
+
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec_()
+
+    def save_normalizations(self):
+        """Save manufacturer normalization settings"""
+        if not self.manufacturer_normalizations:
+            QMessageBox.warning(self, "No Normalizations",
+                              "No normalizations to save.\n"
+                              "Run AI detection first.")
+            return
+
+        # Count enabled normalizations
+        enabled_count = 0
+        for row_idx in range(self.norm_table.rowCount()):
+            include_checkbox = self.norm_table.cellWidget(row_idx, 0)
+            if include_checkbox and include_checkbox.isChecked():
+                enabled_count += 1
+
+        QMessageBox.information(self, "Normalizations Saved",
+                              f"Manufacturer normalization settings saved!\n\n"
+                              f"• {enabled_count} of {len(self.manufacturer_normalizations)} normalizations enabled\n"
+                              f"• Settings will be applied when you click 'Apply Changes'\n\n"
+                              f"You can continue editing the normalizations as needed.")
 
 
 class EDMWizard(QWizard):

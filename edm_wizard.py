@@ -3123,17 +3123,10 @@ class PASAPIClient:
                 'X-Siemens-Ebs-User-Currency': 'USD'
             }
 
-            # Combine manufacturer and part number for more accurate search
-            # This matches how Java SearchAndAssign searches with both parameters
-            if manufacturer and manufacturer.strip():
-                search_term = f"{manufacturer_pn} {manufacturer}"
-            else:
-                search_term = manufacturer_pn
-
             request_body = {
                 "ftsParameters": {
                     "match": {
-                        "term": search_term
+                        "term": manufacturer_pn
                     },
                     "paging": {
                         "requestedPageSize": 20
@@ -3306,8 +3299,8 @@ class PASAPIClient:
                             matches.append(part_data)
 
                     if len(matches) == 0:
-                        # Partial matches - return all as Multiple
-                        return self._format_match_result(parts, 'Multiple')
+                        # No matches found at all
+                        return {'matches': []}, 'None'
                     elif len(matches) == 1:
                         return self._format_match_result(matches, 'Need user review')
                     else:

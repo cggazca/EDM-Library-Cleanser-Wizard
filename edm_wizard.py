@@ -3378,8 +3378,18 @@ class SupplyFrameReviewPage(QWizardPage):
         """Initialize by loading data from PASSearchPage"""
         pas_search_page = self.wizard().page(3)  # PASSearchPage is page 3
 
+        # Debug: Check if page exists
+        if pas_search_page is None:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "Could not find PAS Search Page (Step 4).\n\n"
+                "This is an internal error."
+            )
+            return
+
         # Get search results from PASSearchPage
-        if hasattr(pas_search_page, 'search_results') and pas_search_page.search_results:
+        if hasattr(pas_search_page, 'search_results') and pas_search_page.search_results is not None and len(pas_search_page.search_results) > 0:
             self.search_results = pas_search_page.search_results
 
             # Store original data for comparison later (convert DataFrame to list of dicts)
@@ -3395,11 +3405,20 @@ class SupplyFrameReviewPage(QWizardPage):
             # Load and display the results
             self.load_search_results()
         else:
+            # Debug information
+            has_attr = hasattr(pas_search_page, 'search_results')
+            is_none = pas_search_page.search_results is None if has_attr else True
+            length = len(pas_search_page.search_results) if has_attr and not is_none else 0
+
             QMessageBox.warning(
                 self,
                 "No Data",
-                "No search results available.\n\n"
-                "Please go back to Step 4 and complete the PAS search."
+                f"No search results available.\n\n"
+                f"Debug Info:\n"
+                f"- Has search_results attribute: {has_attr}\n"
+                f"- Is None: {is_none}\n"
+                f"- Length: {length}\n\n"
+                f"Please go back to Step 4 and complete the PAS search."
             )
 
     def load_search_results(self):

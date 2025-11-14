@@ -7,13 +7,15 @@ A comprehensive wizard for converting Access databases to Excel and generating X
 import sys
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import sqlalchemy as sa
 import urllib
 from sqlalchemy import inspect
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+import time
+import requests
 
 try:
     from PyQt5.QtWidgets import (
@@ -78,12 +80,12 @@ class CollapsibleGroupBox(QGroupBox):
 
 
 class StartPage(QWizardPage):
-    """Start Page: Claude AI API Key Configuration"""
+    """Start Page: Claude AI API Key and PAS API Configuration"""
 
     def __init__(self):
         super().__init__()
         self.setTitle("Welcome to EDM Library Wizard")
-        self.setSubTitle("Configure Claude AI for intelligent column mapping assistance")
+        self.setSubTitle("Configure API credentials for intelligent column mapping and part search")
 
         layout = QVBoxLayout()
 
@@ -100,8 +102,8 @@ class StartPage(QWizardPage):
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
 
-        # API Key input section
-        api_group = QGroupBox("API Configuration")
+        # Claude API Key input section
+        api_group = QGroupBox("Claude API Configuration")
         api_layout = QVBoxLayout()
 
         # API Key input
@@ -147,6 +149,108 @@ class StartPage(QWizardPage):
         api_group.setLayout(api_layout)
         layout.addWidget(api_group)
 
+        # PAS API Configuration section
+        pas_group = QGroupBox("🔍 Part Aggregation Service (PAS) API Configuration")
+        pas_layout = QVBoxLayout()
+
+        pas_info = QLabel(
+            "The Part Aggregation Service (PAS) is used to search for parts and get distributor information.\n"
+            "Enter your PAS API credentials below."
+        )
+        pas_info.setWordWrap(True)
+        pas_layout.addWidget(pas_info)
+
+        # Client ID
+        client_id_layout = QHBoxLayout()
+        client_id_layout.addWidget(QLabel("Client ID:"))
+        self.client_id_input = QLineEdit()
+        self.client_id_input.setPlaceholderText("Enter PAS Client ID...")
+        self.client_id_input.textChanged.connect(self.on_pas_credentials_changed)
+        client_id_layout.addWidget(self.client_id_input)
+        pas_layout.addLayout(client_id_layout)
+
+        # Client Secret
+        secret_layout = QHBoxLayout()
+        secret_layout.addWidget(QLabel("Client Secret:"))
+        self.client_secret_input = QLineEdit()
+        self.client_secret_input.setPlaceholderText("Enter PAS Client Secret...")
+        self.client_secret_input.setEchoMode(QLineEdit.Password)
+        self.client_secret_input.textChanged.connect(self.on_pas_credentials_changed)
+        secret_layout.addWidget(self.client_secret_input)
+
+        # Show/Hide button for secret
+        self.show_secret_btn = QPushButton("Show")
+        self.show_secret_btn.setMaximumWidth(60)
+        self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
+        secret_layout.addWidget(self.show_secret_btn)
+        pas_layout.addLayout(secret_layout)
+
+        # Save PAS credentials checkbox
+        self.save_pas_checkbox = QCheckBox("Remember PAS credentials for future sessions")
+        self.save_pas_checkbox.setChecked(True)
+        pas_layout.addWidget(self.save_pas_checkbox)
+
+        # Test PAS connection button
+        test_pas_layout = QHBoxLayout()
+        self.test_pas_btn = QPushButton("Test PAS Connection")
+        self.test_pas_btn.clicked.connect(self.test_pas_credentials)
+        self.test_pas_btn.setEnabled(False)
+        test_pas_layout.addWidget(self.test_pas_btn)
+
+        self.test_pas_status = QLabel("")
+        test_pas_layout.addWidget(self.test_pas_status)
+        test_pas_layout.addStretch()
+        pas_layout.addLayout(test_pas_layout)
+
+        pas_group.setLayout(pas_layout)
+        layout.addWidget(pas_group)
+
+        # SearchAndAssign Tool Configuration
+        tool_group = QGroupBox("🔧 SearchAndAssign Tool Configuration")
+        tool_layout = QVBoxLayout()
+
+        tool_info = QLabel(
+            "The SearchAndAssign tool automatically searches for parts using PAS and generates CSV results.\n"
+            "Provide the mglaunch.exe path to enable automatic search."
+        )
+        tool_info.setWordWrap(True)
+        tool_layout.addWidget(tool_info)
+
+        # mglaunch.exe path
+        mglaunch_layout = QHBoxLayout()
+        mglaunch_layout.addWidget(QLabel("mglaunch.exe Path:"))
+        self.mglaunch_input = QLineEdit()
+        self.mglaunch_input.setPlaceholderText("C:\\SiemensEDA\\XPED2510\\SDD_HOME\\common\\win64\\bin\\mglaunch.exe")
+        mglaunch_layout.addWidget(self.mglaunch_input)
+
+        mglaunch_browse = QPushButton("Browse...")
+        mglaunch_browse.clicked.connect(self.browse_mglaunch)
+        mglaunch_layout.addWidget(mglaunch_browse)
+        tool_layout.addLayout(mglaunch_layout)
+
+        # Auto-detect button
+        detect_layout = QHBoxLayout()
+        self.detect_btn = QPushButton("Auto-Detect mglaunch.exe")
+        self.detect_btn.clicked.connect(self.auto_detect_mglaunch)
+        detect_layout.addWidget(self.detect_btn)
+
+        self.detect_status = QLabel("")
+        detect_layout.addWidget(self.detect_status)
+        detect_layout.addStretch()
+        tool_layout.addLayout(detect_layout)
+
+        # Enable SearchAndAssign checkbox
+        self.enable_searchassign_checkbox = QCheckBox("Enable automatic SearchAndAssign after XML generation")
+        self.enable_searchassign_checkbox.setChecked(True)
+        self.enable_searchassign_checkbox.setToolTip(
+            "When enabled, SearchAndAssign will run automatically after XML generation\n"
+            "to search for parts and create the CSV file for review in Step 4."
+        )
+        tool_layout.addWidget(self.enable_searchassign_checkbox)
+
+        tool_group.setLayout(tool_layout)
+        layout.addWidget(tool_group)
+
         # Skip AI section
         skip_layout = QHBoxLayout()
         skip_layout.addStretch()
@@ -158,15 +262,16 @@ class StartPage(QWizardPage):
         layout.addStretch()
         self.setLayout(layout)
 
-        # Load saved API key if available
-        self.load_saved_api_key()
+        # Load saved credentials if available
+        self.load_saved_credentials()
 
-        # Store whether API is validated
+        # Store whether APIs are validated
         self.api_validated = False
+        self.pas_validated = False
         self.skip_ai_mode = False
 
-    def load_saved_api_key(self):
-        """Load API key from config file if it exists"""
+    def load_saved_credentials(self):
+        """Load API credentials from config file if it exists"""
         config_file = Path.home() / ".edm_wizard_config.json"
         if config_file.exists():
             try:
@@ -174,24 +279,39 @@ class StartPage(QWizardPage):
                     config = json.load(f)
                     if 'api_key' in config:
                         self.api_key_input.setText(config['api_key'])
-                        self.test_status.setText("✓ Loaded saved API key")
+                        self.test_status.setText("✓ Loaded saved Claude API key")
                         self.test_status.setStyleSheet("color: green;")
+                    if 'client_id' in config:
+                        self.client_id_input.setText(config['client_id'])
+                    if 'client_secret' in config:
+                        self.client_secret_input.setText(config['client_secret'])
+                        if config.get('client_id') and config.get('client_secret'):
+                            self.test_pas_status.setText("✓ Loaded saved PAS credentials")
+                            self.test_pas_status.setStyleSheet("color: green;")
             except Exception as e:
                 pass
 
-    def save_api_key(self):
-        """Save API key to config file if checkbox is checked"""
-        if self.save_key_checkbox.isChecked():
-            config_file = Path.home() / ".edm_wizard_config.json"
-            try:
-                config = {'api_key': self.api_key_input.text()}
+    def save_credentials(self):
+        """Save all credentials to config file"""
+        config_file = Path.home() / ".edm_wizard_config.json"
+        try:
+            config = {}
+            if self.save_key_checkbox.isChecked() and self.api_key_input.text().strip():
+                config['api_key'] = self.api_key_input.text()
+            if self.save_pas_checkbox.isChecked():
+                if self.client_id_input.text().strip():
+                    config['client_id'] = self.client_id_input.text()
+                if self.client_secret_input.text().strip():
+                    config['client_secret'] = self.client_secret_input.text()
+            
+            if config:
                 with open(config_file, 'w') as f:
                     json.dump(config, f)
-            except Exception as e:
-                QMessageBox.warning(self, "Save Error", f"Could not save API key: {str(e)}")
+        except Exception as e:
+            QMessageBox.warning(self, "Save Error", f"Could not save credentials: {str(e)}")
 
-    def clear_saved_api_key(self):
-        """Clear saved API key from config file"""
+    def clear_saved_credentials(self):
+        """Clear saved credentials from config file"""
         config_file = Path.home() / ".edm_wizard_config.json"
         if config_file.exists():
             try:
@@ -205,14 +325,31 @@ class StartPage(QWizardPage):
         self.api_validated = False
         self.test_status.setText("")
 
+    def on_pas_credentials_changed(self):
+        """Enable test button when PAS credentials are entered"""
+        has_both = (len(self.client_id_input.text().strip()) > 0 and 
+                   len(self.client_secret_input.text().strip()) > 0)
+        self.test_pas_btn.setEnabled(has_both)
+        self.pas_validated = False
+        self.test_pas_status.setText("")
+
     def toggle_key_visibility(self):
-        """Toggle API key visibility"""
+        """Toggle Claude API key visibility"""
         if self.api_key_input.echoMode() == QLineEdit.Password:
             self.api_key_input.setEchoMode(QLineEdit.Normal)
             self.show_key_btn.setText("Hide")
         else:
             self.api_key_input.setEchoMode(QLineEdit.Password)
             self.show_key_btn.setText("Show")
+
+    def toggle_secret_visibility(self):
+        """Toggle PAS client secret visibility"""
+        if self.client_secret_input.echoMode() == QLineEdit.Password:
+            self.client_secret_input.setEchoMode(QLineEdit.Normal)
+            self.show_secret_btn.setText("Hide")
+        else:
+            self.client_secret_input.setEchoMode(QLineEdit.Password)
+            self.show_secret_btn.setText("Show")
 
     def test_api_key(self):
         """Test the Claude API connection"""
@@ -249,8 +386,8 @@ class StartPage(QWizardPage):
             self.test_status.setText("✓ Connection successful!")
             self.test_status.setStyleSheet("color: green;")
 
-            # Save API key if checkbox is checked
-            self.save_api_key()
+            # Save credentials if checkbox is checked
+            self.save_credentials()
 
         except Exception as e:
             self.api_validated = False
@@ -272,6 +409,79 @@ class StartPage(QWizardPage):
 
         self.test_btn.setEnabled(True)
 
+    def test_pas_credentials(self):
+        """Test the PAS API connection"""
+        client_id = self.client_id_input.text().strip()
+        client_secret = self.client_secret_input.text().strip()
+
+        if not client_id or not client_secret:
+            self.test_pas_status.setText("⚠ Please enter both credentials")
+            self.test_pas_status.setStyleSheet("color: orange;")
+            return
+
+        self.test_pas_status.setText("Testing connection...")
+        self.test_pas_status.setStyleSheet("color: blue;")
+        self.test_pas_btn.setEnabled(False)
+        QApplication.processEvents()
+
+        try:
+            import requests
+            import urllib.parse
+
+            # PAS authentication endpoint
+            auth_url = "https://samauth.us-east-1.sws.siemens.com/token"
+            
+            # Use basic auth with client credentials
+            auth = (client_id, client_secret)
+            
+            auth_data = {
+                'grant_type': 'client_credentials',
+                'scope': 'sws.icarus.api.read'
+            }
+            
+            headers = {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            response = requests.post(
+                auth_url,
+                auth=auth,
+                data=auth_data,
+                headers=headers,
+                timeout=10
+            )
+            response.raise_for_status()
+            
+            token_data = response.json()
+            if 'access_token' in token_data:
+                self.pas_validated = True
+                self.test_pas_status.setText("✓ Connection successful!")
+                self.test_pas_status.setStyleSheet("color: green;")
+                
+                # Save credentials if checkbox is checked
+                self.save_credentials()
+            else:
+                raise Exception("No access token in response")
+
+        except Exception as e:
+            self.pas_validated = False
+            error_msg = str(e)
+            self.test_pas_status.setText(f"✗ Failed: {error_msg[:50]}...")
+            self.test_pas_status.setStyleSheet("color: red;")
+
+            QMessageBox.critical(
+                self,
+                "PAS Connection Test Failed",
+                f"Failed to connect to PAS API:\n\n{error_msg}\n\n"
+                "Please check:\n"
+                "1. Your Client ID is correct\n"
+                "2. Your Client Secret is correct\n"
+                "3. You have internet connectivity\n"
+                "4. Your credentials have proper permissions"
+            )
+
+        self.test_pas_btn.setEnabled(True)
+
     def skip_ai(self):
         """Skip AI features and continue without API key"""
         self.skip_ai_mode = True
@@ -281,17 +491,33 @@ class StartPage(QWizardPage):
         """Validate before proceeding to next page"""
         # If skipping AI, always allow
         if self.skip_ai_mode:
-            # Clear saved key if not saving
-            if not self.save_key_checkbox.isChecked():
-                self.clear_saved_api_key()
+            # Save or clear credentials based on checkbox
+            if self.save_key_checkbox.isChecked() or self.save_pas_checkbox.isChecked():
+                self.save_credentials()
+            else:
+                self.clear_saved_credentials()
             return True
 
-        # If API key is entered but not tested
-        if self.api_key_input.text().strip() and not self.api_validated:
+        # Check if PAS credentials are provided
+        has_pas_creds = (self.client_id_input.text().strip() and 
+                        self.client_secret_input.text().strip())
+
+        if not has_pas_creds:
+            reply = QMessageBox.warning(
+                self,
+                "PAS Credentials Required",
+                "PAS API credentials are required to search for parts.\n\n"
+                "Please enter your Client ID and Client Secret, or contact your administrator.",
+                QMessageBox.Ok
+            )
+            return False
+
+        # If PAS credentials entered but not tested
+        if has_pas_creds and not self.pas_validated:
             reply = QMessageBox.question(
                 self,
-                "API Key Not Tested",
-                "You entered an API key but haven't tested it.\n\n"
+                "PAS Credentials Not Tested",
+                "You entered PAS credentials but haven't tested them.\n\n"
                 "Do you want to continue without testing?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
@@ -299,19 +525,40 @@ class StartPage(QWizardPage):
             if reply == QMessageBox.No:
                 return False
 
-        # Save or clear API key based on checkbox
-        if self.save_key_checkbox.isChecked() and self.api_key_input.text().strip():
-            self.save_api_key()
-        else:
-            self.clear_saved_api_key()
+        # If API key is entered but not tested (optional)
+        if self.api_key_input.text().strip() and not self.api_validated:
+            reply = QMessageBox.question(
+                self,
+                "Claude API Key Not Tested",
+                "You entered a Claude API key but haven't tested it.\n\n"
+                "Do you want to continue without testing?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return False
+
+        # Save credentials based on checkboxes
+        self.save_credentials()
 
         return True
 
     def get_api_key(self):
-        """Get the entered API key"""
+        """Get the entered Claude API key"""
         if self.skip_ai_mode:
             return None
         return self.api_key_input.text().strip() if self.api_key_input.text().strip() else None
+
+    def get_pas_credentials(self):
+        """Get the entered PAS credentials"""
+        client_id = self.client_id_input.text().strip()
+        client_secret = self.client_secret_input.text().strip()
+        if client_id and client_secret:
+            return {
+                'client_id': client_id,
+                'client_secret': client_secret
+            }
+        return None
 
 
 class AccessExportThread(QThread):
@@ -1478,8 +1725,326 @@ class ColumnMappingPage(QWizardPage):
             )
 
 
+class PASSearchPage(QWizardPage):
+    """Step 3: Search parts using PAS API"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Step 3: Part Search via PAS API")
+        self.setSubTitle("Search for parts using the Part Aggregation Service")
+
+        layout = QVBoxLayout()
+
+        # Info section
+        info_group = QGroupBox("🔍 Part Search Information")
+        info_layout = QVBoxLayout()
+        
+        info_text = QLabel(
+            "This step will search for each part in your data using the Part Aggregation Service (PAS).\n"
+            "The search results will be saved as a CSV file for review in the next step."
+        )
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text)
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
+
+        # Project settings (for later XML generation)
+        settings_group = QGroupBox("Project Settings")
+        settings_layout = QGridLayout()
+
+        settings_layout.addWidget(QLabel("Project Name:"), 0, 0)
+        self.project_name = QLineEdit("VarTrainingLab")
+        settings_layout.addWidget(self.project_name, 0, 1)
+
+        settings_layout.addWidget(QLabel("Catalog:"), 1, 0)
+        self.catalog = QLineEdit("VV")
+        settings_layout.addWidget(self.catalog, 1, 1)
+
+        settings_group.setLayout(settings_layout)
+        layout.addWidget(settings_group)
+
+        # Output settings
+        output_group = QGroupBox("Output Settings")
+        output_layout = QVBoxLayout()
+
+        location_layout = QHBoxLayout()
+        location_layout.addWidget(QLabel("Output Location:"))
+        self.output_path = QLineEdit()
+        self.output_path.setReadOnly(True)
+        location_layout.addWidget(self.output_path)
+
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_output)
+        location_layout.addWidget(browse_btn)
+
+        output_layout.addLayout(location_layout)
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
+
+        # Search button
+        self.search_button = QPushButton("🔍 Start Part Search")
+        self.search_button.clicked.connect(self.start_search)
+        self.search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+        """)
+        layout.addWidget(self.search_button)
+
+        # Progress
+        self.progress_label = QLabel("")
+        layout.addWidget(self.progress_label)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        # Summary
+        summary_group = QGroupBox("Search Summary")
+        summary_layout = QVBoxLayout()
+        self.summary_text = QTextEdit()
+        self.summary_text.setReadOnly(True)
+        summary_layout.addWidget(self.summary_text)
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group, stretch=1)
+
+        self.setLayout(layout)
+
+        self.search_completed = False
+        self.search_results = []
+        self.combined_data = []
+        self.csv_output_path = None
+
+    def initializePage(self):
+        """Initialize with default output path and prepare data"""
+        prev_page = self.wizard().page(1)  # DataSourcePage
+        excel_path = prev_page.get_excel_path()
+
+        if excel_path:
+            # Create timestamped folder
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            base_dir = Path(excel_path).parent
+            output_folder = base_dir / f"EDM_Output_{timestamp}"
+            output_folder.mkdir(exist_ok=True)
+
+            self.output_path.setText(str(output_folder))
+            self.timestamp = timestamp
+
+    def browse_output(self):
+        """Browse for output directory"""
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if directory:
+            self.output_path.setText(directory)
+
+    def start_search(self):
+        """Start the PAS search process"""
+        try:
+            # Get PAS credentials from Start Page
+            start_page = self.wizard().page(0)
+            pas_creds = start_page.get_pas_credentials() if hasattr(start_page, 'get_pas_credentials') else None
+
+            if not pas_creds:
+                QMessageBox.warning(
+                    self,
+                    "Missing Credentials",
+                    "PAS API credentials are required.\n\n"
+                    "Please go back to Step 1 and enter your credentials."
+                )
+                return
+
+            # Get data from previous steps
+            prev_page_0 = self.wizard().page(1)  # DataSourcePage
+            prev_page_1 = self.wizard().page(2)  # ColumnMappingPage
+
+            excel_path = prev_page_0.get_excel_path()
+            dataframes = prev_page_0.get_dataframes()
+            mappings = prev_page_1.get_mappings()
+            output_dir = Path(self.output_path.text())
+
+            # Prepare combined data
+            self.combined_data = []
+
+            # Check if Combined sheet should be used
+            if prev_page_1.should_combine():
+                xl_file = pd.ExcelFile(excel_path)
+                if 'Combined' in xl_file.sheet_names:
+                    combined_df = pd.read_excel(excel_path, sheet_name='Combined')
+                    for _, row in combined_df.iterrows():
+                        if pd.notna(row.get('MFG')) and pd.notna(row.get('MFG_PN')):
+                            self.combined_data.append({
+                                'MFG': str(row['MFG']).strip(),
+                                'MFG_PN': str(row['MFG_PN']).strip(),
+                                'Description': str(row.get('Description', '')) if pd.notna(row.get('Description')) else ''
+                            })
+                else:
+                    self.extract_from_sheets(dataframes, mappings)
+            else:
+                self.extract_from_sheets(dataframes, mappings)
+
+            if not self.combined_data:
+                QMessageBox.warning(
+                    self,
+                    "No Data",
+                    "No parts data found to search.\n\n"
+                    "Please check your column mappings in Step 2."
+                )
+                return
+
+            # Create PAS client
+            pas_client = PASAPIClient(
+                client_id=pas_creds['client_id'],
+                client_secret=pas_creds['client_secret']
+            )
+
+            # Disable button and show progress
+            self.search_button.setEnabled(False)
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setMaximum(len(self.combined_data))
+            self.progress_bar.setValue(0)
+
+            # Start search thread
+            self.search_thread = PASSearchThread(pas_client, self.combined_data)
+            self.search_thread.progress.connect(self.on_search_progress)
+            self.search_thread.finished.connect(self.on_search_finished)
+            self.search_thread.error.connect(self.on_search_error)
+            self.search_thread.start()
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to start search:\n{str(e)}")
+            self.search_button.setEnabled(True)
+
+    def extract_from_sheets(self, dataframes, mappings):
+        """Extract part data from individual sheets"""
+        included_sheets = self.wizard().page(2).get_included_sheets()
+
+        for sheet_name, df in dataframes.items():
+            if sheet_name not in included_sheets:
+                continue
+
+            mapping = mappings.get(sheet_name, {})
+            if not mapping.get('MFG') or not mapping.get('MFG_PN'):
+                continue
+
+            mfg_col = mapping['MFG']
+            mfgpn_col = mapping['MFG_PN']
+            desc_col = mapping.get('Description', '')
+
+            for _, row in df.iterrows():
+                if pd.notna(row.get(mfg_col)) and pd.notna(row.get(mfgpn_col)):
+                    self.combined_data.append({
+                        'MFG': str(row[mfg_col]).strip(),
+                        'MFG_PN': str(row[mfgpn_col]).strip(),
+                        'Description': str(row[desc_col]) if desc_col and pd.notna(row.get(desc_col)) else ''
+                    })
+
+    def on_search_progress(self, message, current, total):
+        """Update progress during search"""
+        self.progress_label.setText(message)
+        self.progress_bar.setValue(current)
+
+    def on_search_finished(self, results):
+        """Handle search completion"""
+        self.search_results = results
+        self.search_completed = True
+
+        # Save results to CSV
+        output_dir = Path(self.output_path.text())
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = f"SearchAndAssign_Result_{timestamp}.csv"
+        self.csv_output_path = output_dir / csv_filename
+
+        try:
+            self.save_results_csv()
+
+            # Count results
+            exact = sum(1 for r in results if r['MatchStatus'] == 'Found')
+            multiple = sum(1 for r in results if r['MatchStatus'] == 'Multiple')
+            none = sum(1 for r in results if r['MatchStatus'] == 'None')
+            review = sum(1 for r in results if r['MatchStatus'] == 'Need user review')
+
+            # Show summary
+            summary = f"✓ Part Search Completed!\n\n"
+            summary += f"Total parts searched: {len(results)}\n"
+            summary += f"  - Exact matches (Found): {exact}\n"
+            summary += f"  - Multiple matches: {multiple}\n"
+            summary += f"  - No matches: {none}\n"
+            summary += f"  - Need review: {review}\n\n"
+            summary += f"Results saved to:\n{self.csv_output_path}\n\n"
+            summary += f"Proceed to Step 4 to review and normalize matches."
+
+            self.summary_text.setText(summary)
+            self.progress_label.setText("✓ Search completed successfully!")
+            self.progress_label.setStyleSheet("color: green; font-weight: bold;")
+
+            self.completeChanged.emit()
+
+            QMessageBox.information(
+                self,
+                "Search Complete",
+                f"Successfully searched {len(results)} parts!\n\n"
+                f"Exact matches: {exact}\n"
+                f"Multiple matches: {multiple}\n"
+                f"No matches: {none}\n"
+                f"Need review: {review}\n\n"
+                f"Results saved to:\n{csv_filename}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save results:\n{str(e)}")
+
+        self.search_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+
+    def on_search_error(self, error_msg):
+        """Handle search error"""
+        self.progress_label.setText(f"✗ Search failed: {error_msg[:50]}...")
+        self.progress_label.setStyleSheet("color: red;")
+        self.search_button.setEnabled(True)
+        self.progress_bar.setVisible(False)
+
+        QMessageBox.critical(self, "Search Error", f"Search failed:\n{error_msg}")
+
+    def save_results_csv(self):
+        """Save search results to CSV in SearchAndAssign format"""
+        import csv
+
+        with open(self.csv_output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            # Write header
+            writer.writerow(['PartNumber', 'ManufacturerName', 'MatchStatus', 'MatchValue(PartNumber@ManufacturerName)'])
+            
+            # Write data
+            for result in self.search_results:
+                part_number = result['PartNumber']
+                manufacturer = result['ManufacturerName']
+                status = result['MatchStatus']
+                matches = result.get('matches', [])
+                
+                # Write one row per match (or one row if no matches)
+                if matches:
+                    for match in matches:
+                        writer.writerow([part_number, manufacturer, status, match])
+                else:
+                    writer.writerow([part_number, manufacturer, status, ''])
+
+    def isComplete(self):
+        """Check if search is complete"""
+        return self.search_completed
+
+
 class XMLGenerationPage(QWizardPage):
-    """Step 3: Generate XML files"""
+    """Step 3: Generate XML files (DEPRECATED - replaced by PASSearchPage)"""
 
     def __init__(self):
         super().__init__()
@@ -2108,6 +2673,234 @@ IMPORTANT:
 
         except Exception as e:
             self.error.emit(str(e))
+
+
+class PASSearchThread(QThread):
+    """Background thread for searching parts via PAS API"""
+    progress = pyqtSignal(str, int, int)  # message, current, total
+    finished = pyqtSignal(list)  # search results
+    error = pyqtSignal(str)
+
+    def __init__(self, pas_client, parts_data):
+        super().__init__()
+        self.pas_client = pas_client
+        self.parts_data = parts_data  # List of {'MFG': ..., 'MFG_PN': ..., 'Description': ...}
+
+    def run(self):
+        try:
+            results = []
+            total = len(self.parts_data)
+            
+            for idx, part in enumerate(self.parts_data):
+                manufacturer = part.get('MFG', '')
+                part_number = part.get('MFG_PN', '')
+                
+                if not manufacturer or not part_number:
+                    self.progress.emit(f"Skipping part {idx + 1}/{total} (missing data)...", idx + 1, total)
+                    results.append({
+                        'PartNumber': part_number,
+                        'ManufacturerName': manufacturer,
+                        'MatchStatus': 'None',
+                        'matches': []
+                    })
+                    continue
+                
+                self.progress.emit(
+                    f"Searching part {idx + 1}/{total}: {manufacturer} {part_number}...",
+                    idx + 1,
+                    total
+                )
+                
+                # Search with retry logic (like SearchAndAssignApp - 3 retries)
+                match_result = None
+                match_type = None
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count < max_retries:
+                    try:
+                        match_result, match_type = self.pas_client.search_part(part_number, manufacturer)
+                        break  # Success
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            self.progress.emit(
+                                f"Retry {retry_count}/{max_retries} for {manufacturer} {part_number}...",
+                                idx + 1,
+                                total
+                            )
+                            time.sleep(3)  # Wait 3 seconds before retry
+                        else:
+                            match_result = {'error': str(e)}
+                            match_type = 'error'
+                
+                # Determine match status for CSV
+                if match_type == 'exact':
+                    status = 'Found'
+                elif match_type == 'partial':
+                    matches = match_result.get('matches', [])
+                    if len(matches) > 1:
+                        status = 'Multiple'
+                    elif len(matches) == 1:
+                        status = 'Found'
+                    else:
+                        status = 'None'
+                elif match_type == 'no_match':
+                    status = 'None'
+                else:  # error
+                    status = 'Need user review'
+                
+                results.append({
+                    'PartNumber': part_number,
+                    'ManufacturerName': manufacturer,
+                    'MatchStatus': status,
+                    'matches': match_result.get('matches', []) if match_type != 'error' else []
+                })
+            
+            self.finished.emit(results)
+            
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class PASAPIClient:
+    """Part Aggregation Service API Client"""
+    
+    def __init__(self, client_id, client_secret):
+        """Initialize PAS API client with credentials"""
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.pas_url = "https://api.pas.partquest.com"
+        self.auth_url = "https://samauth.us-east-1.sws.siemens.com/token"
+        self.access_token = None
+        self.token_expires_at = None
+        
+    def _get_access_token(self):
+        """Get or refresh the access token"""
+        if self.access_token and self.token_expires_at:
+            if datetime.now() < self.token_expires_at:
+                return self.access_token
+        
+        # Request new token
+        auth = (self.client_id, self.client_secret)
+        auth_data = {
+            'grant_type': 'client_credentials',
+            'scope': 'sws.icarus.api.read'
+        }
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        response = requests.post(
+            self.auth_url,
+            auth=auth,
+            data=auth_data,
+            headers=headers,
+            timeout=10
+        )
+        response.raise_for_status()
+        
+        token_data = response.json()
+        self.access_token = token_data['access_token']
+        expires_in = token_data.get('expires_in', 7200)
+        self.token_expires_at = datetime.now() + timedelta(seconds=expires_in - 60)
+        
+        return self.access_token
+    
+    def search_part(self, manufacturer_pn, manufacturer):
+        """
+        Search for a part using PAS API
+        Returns: (result_dict, match_type)
+        match_type: 'exact', 'partial', 'no_match', or 'error'
+        """
+        try:
+            token = self._get_access_token()
+            
+            # Search endpoint
+            endpoint = '/api/v2/search-providers/44/2/free-text/search'
+            
+            headers = {
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json',
+                'X-Siemens-Correlation-Id': f'corr-{int(time.time() * 1000)}',
+                'X-Siemens-Session-Id': f'session-{int(time.time())}',
+                'X-Siemens-Ebs-User-Country-Code': 'US',
+                'X-Siemens-Ebs-User-Currency': 'USD'
+            }
+            
+            request_body = {
+                "ftsParameters": {
+                    "match": {
+                        "term": manufacturer_pn
+                    },
+                    "paging": {
+                        "requestedPageSize": 20
+                    }
+                }
+            }
+            
+            url = f"{self.pas_url}{endpoint}"
+            response = requests.post(
+                url,
+                headers=headers,
+                json=request_body,
+                timeout=60
+            )
+            
+            if response.status_code == 401:
+                # Token expired, retry once
+                self.access_token = None
+                self.token_expires_at = None
+                token = self._get_access_token()
+                headers['Authorization'] = f'Bearer {token}'
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=request_body,
+                    timeout=60
+                )
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if not result.get('success', False):
+                error = result.get('error', {})
+                error_msg = error.get('message', 'Unknown error')
+                return {'error': error_msg}, 'error'
+            
+            # Process results
+            if result.get('result') and result['result'].get('results'):
+                parts = result['result']['results']
+                total_count = result['result'].get('totalCount', len(parts))
+                
+                # Filter matches
+                exact_matches = []
+                partial_matches = []
+                
+                for part_data in parts:
+                    part = part_data.get('searchProviderPart', {})
+                    found_mpn = part.get('manufacturerPartNumber', '')
+                    found_mfg = part.get('manufacturerName', '')
+                    
+                    if found_mpn.upper() == manufacturer_pn.upper():
+                        if manufacturer.upper() in found_mfg.upper() or found_mfg.upper() in manufacturer.upper():
+                            exact_matches.append(f"{found_mpn}@{found_mfg}")
+                        else:
+                            partial_matches.append(f"{found_mpn}@{found_mfg}")
+                    else:
+                        partial_matches.append(f"{found_mpn}@{found_mfg}")
+                
+                if exact_matches:
+                    return {'matches': exact_matches[:10]}, 'exact'
+                elif partial_matches:
+                    return {'matches': partial_matches[:10]}, 'partial'
+                else:
+                    return {'matches': []}, 'no_match'
+            else:
+                return {'matches': []}, 'no_match'
+                
+        except Exception as e:
+            return {'error': str(e)}, 'error'
 
 
 class SupplyFrameReviewPage(QWizardPage):
@@ -3678,13 +4471,13 @@ class EDMWizard(QWizard):
         self.start_page = StartPage()
         self.data_source_page = DataSourcePage()
         self.column_mapping_page = ColumnMappingPage()
-        self.xml_generation_page = XMLGenerationPage()
+        self.pas_search_page = PASSearchPage()  # Replaced XMLGenerationPage
         self.supplyframe_review_page = SupplyFrameReviewPage()
 
         self.addPage(self.start_page)
         self.addPage(self.data_source_page)
         self.addPage(self.column_mapping_page)
-        self.addPage(self.xml_generation_page)
+        self.addPage(self.pas_search_page)  # Step 3: PAS Search
         self.addPage(self.supplyframe_review_page)
 
         # Customize buttons

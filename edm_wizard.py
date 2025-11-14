@@ -125,6 +125,18 @@ class StartPage(QWizardPage):
 
         api_layout.addLayout(key_layout)
 
+        # Model selection
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("Claude Model:"))
+        self.model_selector = QComboBox()
+        self.model_selector.addItem("Claude Sonnet 4.5 (Recommended)", "claude-sonnet-4-20250514")
+        self.model_selector.addItem("Claude Opus 4", "claude-opus-4-20250514")
+        self.model_selector.addItem("Claude Haiku 4 (Fastest)", "claude-haiku-4-20250514")
+        self.model_selector.setCurrentIndex(0)  # Default to Sonnet
+        model_layout.addWidget(self.model_selector)
+        model_layout.addStretch()
+        api_layout.addLayout(model_layout)
+
         # Save API key checkbox
         self.save_key_checkbox = QCheckBox("Remember API key for future sessions")
         self.save_key_checkbox.setChecked(True)
@@ -683,6 +695,10 @@ class StartPage(QWizardPage):
         """Get the selected output folder"""
         return self.output_folder_input.text().strip()
 
+    def get_selected_model(self):
+        """Get the selected Claude model"""
+        return self.model_selector.currentData()  # Returns the model ID
+
 
 class AccessExportThread(QThread):
     """Background thread for exporting Access database"""
@@ -746,10 +762,11 @@ class AIDetectionThread(QThread):
     finished = pyqtSignal(dict)  # mappings
     error = pyqtSignal(str)
 
-    def __init__(self, api_key, dataframes):
+    def __init__(self, api_key, dataframes, model="claude-sonnet-4-20250514"):
         super().__init__()
         self.api_key = api_key
         self.dataframes = dataframes
+        self.model = model
 
     def run(self):
         try:
@@ -857,9 +874,9 @@ Format:
 
 Only return the JSON, no other text."""
 
-                # Call Claude API - use Claude Haiku 4.5 (fast and cost-effective)
+                # Call Claude API with selected model
                 response = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
+                    model=self.model,
                     max_tokens=4096,
                     messages=[{"role": "user", "content": prompt}]
                 )
@@ -948,10 +965,10 @@ class DataSourcePage(QWizardPage):
         preview_layout.addWidget(self.preview_table)
         preview_group.setLayout(preview_layout)
 
-        # Export button (only for Access DB)
-        self.export_button = QPushButton("Export Access Database")
-        self.export_button.clicked.connect(self.export_access)
-        self.export_button.setEnabled(False)
+        # Load button (only for Access DB)
+        self.load_button = QPushButton("Load Database to Excel")
+        self.load_button.clicked.connect(self.export_access)
+        self.load_button.setEnabled(False)
 
         # Progress
         self.progress_label = QLabel("")
@@ -968,7 +985,7 @@ class DataSourcePage(QWizardPage):
         layout.addWidget(source_group)
         layout.addWidget(self.access_group)
         layout.addWidget(self.excel_group)
-        layout.addWidget(self.export_button)
+        layout.addWidget(self.load_button)
         layout.addWidget(self.progress_label)
         layout.addWidget(self.progress_bar)
         layout.addWidget(preview_group, stretch=1)  # Preview fills available space
@@ -984,7 +1001,7 @@ class DataSourcePage(QWizardPage):
         is_access = self.access_radio.isChecked()
         self.access_group.setEnabled(is_access)
         self.excel_group.setEnabled(not is_access)
-        self.export_button.setVisible(is_access)
+        self.load_button.setVisible(is_access)
         self.validate_page()
 
     def browse_access(self):
@@ -1017,7 +1034,7 @@ class DataSourcePage(QWizardPage):
         output_file = str(Path(access_file).parent / f"{Path(access_file).stem}.xlsx")
 
         # Start export in background thread
-        self.export_button.setEnabled(False)
+        self.load_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(0)  # Indeterminate
 
@@ -1034,7 +1051,7 @@ class DataSourcePage(QWizardPage):
     def export_finished(self, excel_path, dataframes):
         """Handle export completion"""
         self.progress_bar.setVisible(False)
-        self.export_button.setEnabled(True)
+        self.load_button.setEnabled(True)
         self.exported_excel_path = excel_path
         self.dataframes = dataframes
 
@@ -1049,7 +1066,7 @@ class DataSourcePage(QWizardPage):
     def export_error(self, error_msg):
         """Handle export error"""
         self.progress_bar.setVisible(False)
-        self.export_button.setEnabled(True)
+        self.load_button.setEnabled(True)
         QMessageBox.critical(self, "Export Error", error_msg)
 
     def load_excel_preview(self, excel_path):
@@ -1113,7 +1130,7 @@ class DataSourcePage(QWizardPage):
 
     def validate_page(self):
         """Validate page completion"""
-        self.export_button.setEnabled(
+        self.load_button.setEnabled(
             self.access_radio.isChecked() and
             bool(self.access_path.text()) and
             os.path.exists(self.access_path.text())
@@ -1593,8 +1610,12 @@ class ColumnMappingPage(QWizardPage):
         self.ai_status.setText("🔄 Starting AI analysis...")
         self.ai_status.setStyleSheet("color: blue;")
 
+        # Get selected model from StartPage
+        start_page = self.wizard().page(0)
+        model = start_page.get_selected_model() if hasattr(start_page, 'get_selected_model') else "claude-sonnet-4-20250514"
+
         # Create and start AI detection thread
-        self.ai_thread = AIDetectionThread(self.api_key, self.dataframes)
+        self.ai_thread = AIDetectionThread(self.api_key, self.dataframes, model)
         self.ai_thread.progress.connect(self.on_ai_progress)
         self.ai_thread.finished.connect(self.on_ai_finished)
         self.ai_thread.error.connect(self.on_ai_error)

@@ -13,23 +13,36 @@ The codebase provides both individual command-line tools and an integrated wizar
 ### **RECOMMENDED: EDM Wizard (`edm_wizard.py`)**
 **All-in-one GUI wizard** that combines all processing steps with an easy-to-use PyQt5 interface.
 
-**Architecture**: The wizard uses PyQt5's `QWizard` framework with 5 distinct pages:
-1. **StartPage** - Claude AI API key configuration (optional, enables AI features)
+**Architecture**: The wizard uses PyQt5's `QWizard` framework with 6 distinct pages:
+1. **StartPage** - Claude AI and PAS API configuration + output folder selection
 2. **DataSourcePage** - Access DB export or Excel file selection with preview
 3. **ColumnMappingPage** - Column mapping with AI-assisted detection and sheet combining
-4. **XMLGenerationPage** - XML file generation with project settings
-5. **SupplyFrameReviewPage** - SupplyFrame match review and manufacturer normalization
+4. **PASSearchPage** - Part Aggregation Service (PAS) search (auto-loads data from Step 3)
+5. **SupplyFrameReviewPage** - Review match results by category (Found/Multiple/Need Review/None) + manufacturer normalization
+6. **ComparisonPage** - Old vs New comparison showing all changes made with export options
 
 **Key UI Components**:
 - `CollapsibleGroupBox` - Custom checkable QGroupBox that expands/collapses content when toggled
-- Thread-based workers (`ExportThread`, `ColumnDetectionThread`) for long-running operations
-- Scroll areas and dynamic section expansion for better UX on Step 4
+- Thread-based workers (`ExportThread`, `ColumnDetectionThread`, `PASSearchThread`) for long-running operations
+- Tabbed interface in Step 5 for categorized match review
+- Scroll areas and dynamic section expansion for better UX
+- Color-coded comparison table in Step 6 (red=old, green=new)
 
 **AI Integration** (Optional, requires Claude API key):
-- Column mapping auto-detection (Step 2)
-- Part number match suggestions using similarity scoring (Step 4)
-- Manufacturer normalization detection (Step 4)
+- Column mapping auto-detection (Step 3)
+- Part number match suggestions using similarity scoring (Step 5)
+- Manufacturer normalization detection (Step 5)
 - Uses `anthropic` package with Claude Sonnet 4.5 model
+
+**PAS API Integration** (Required, uses Client ID/Secret):
+- Direct part search via Siemens Part Aggregation Service (Step 4)
+- Implements exact SearchAndAssign matching algorithm from legacy Java tool:
+  - Step 1: Search with PN + MFG (exact → partial → alphanumeric → zero suppression)
+  - Step 2: Search by PN only (if MFG empty/Unknown or no matches)
+- Returns match types: "Found", "Multiple", "Need user review", "None", "Error"
+- Retrieves distributor availability, pricing, and lifecycle data
+- Supports enriching providers for extended part information
+- See `Part Aggeration Service/example.py` for standalone PAS client implementation
 
 ### Individual Command-Line Tools
 
@@ -121,8 +134,23 @@ python AccessToExcel/Unit_Test.py
 
 ## Data Flow
 
-### EDM Wizard (Recommended)
-**All-in-one workflow**: Access DB/Excel → Column Mapping → Combine (optional) → XML Generation
+### EDM Wizard (Primary Workflow)
+**Modern PAS API-based workflow** (XML generation removed):
+Access DB/Excel → Column Mapping → PAS API Search → Review Matches → Normalize → Compare Changes
+
+1. **Step 1**: Configure Claude AI (optional) and PAS API credentials (required) + select output folder
+2. **Step 2**: Import from Access DB or Excel file
+3. **Step 3**: Map MFG/MFG PN columns (AI-assisted) and combine data
+4. **Step 4**: Auto-loads data from Step 3, searches parts via PAS API using SearchAndAssign algorithm
+5. **Step 5**: Review match results in tabs (Found/Multiple/Need Review/None), normalize manufacturer names
+6. **Step 6**: Review old vs new comparison, export changes to CSV/Excel
+
+**Key Changes from Legacy**:
+- No XML generation (removed XMLGenerationPage)
+- Data flows automatically between pages (no manual CSV loading)
+- Output folder configured once in Step 1
+- Match results categorized using exact SearchAndAssign algorithm
+- Final comparison page shows all changes before finishing
 
 ### Individual Tools Workflow
 1. **MS Access DB** → `AccessToExcel.py` → **Excel (Multiple Sheets)**
@@ -159,6 +187,10 @@ xlsxwriter>=3.0.0
 pyodbc>=4.0.0
 PyQt5>=5.15.0
 pyinstaller>=5.0.0  # Only needed for building executable
+anthropic>=0.39.0  # For AI features
+fuzzywuzzy>=0.18.0  # For manufacturer normalization
+python-Levenshtein>=0.27.0  # For fuzzy matching performance
+requests>=2.31.0  # For PAS API calls
 ```
 
 ### For Individual Tools
@@ -199,12 +231,14 @@ Generated files follow these patterns:
 ### Threading for Long Operations
 - **ExportThread**: Handles Access DB to Excel export without freezing UI
 - **ColumnDetectionThread**: Runs AI column detection in background
-- Both emit signals (`progress`, `finished`, `error`) for UI updates
+- **PASSearchThread**: Performs batch part searches via PAS API
+- All workers emit signals (`progress`, `finished`, `error`) for UI updates
 
 ### UI Patterns
-- **CollapsibleGroupBox**: Custom widget for Step 4's 5 sections, auto-expands when data is ready
+- **CollapsibleGroupBox**: Custom widget for Step 5's sections, auto-expands when data is ready
 - **Dynamic validation**: Wizard pages use `validatePage()` override to control Next/Finish button state
-- **Scroll areas**: Large content areas (Step 4) wrapped in `QScrollArea` for responsiveness
+- **Scroll areas**: Large content areas (Steps 4 & 5) wrapped in `QScrollArea` for responsiveness
+- **Context menus**: Right-click menus on tables for data manipulation (copy, export, etc.)
 
 ### XML Escaping
 All XML generators properly escape special characters (`&`, `<`, `>`, `"`, `'`) using dedicated `escape_xml()` functions.
@@ -220,10 +254,45 @@ MFGPN XML generation automatically removes duplicate MFG:PN combinations before 
 ### AI Features (Optional)
 - **Column Detection**: Analyzes first 10 rows to suggest MFG/MFG PN columns
 - **Part Matching**: Uses difflib similarity + Claude AI for intelligent part number matching
-- **Manufacturer Normalization**: Detects variations (e.g., "Texas Instruments" vs "TI")
+- **Manufacturer Normalization**: Hybrid approach using fuzzy matching + Claude AI
+  - First tries fuzzy matching against PAS canonical manufacturer names
+  - Falls back to Claude AI for ambiguous cases
+  - Provides reasoning for normalization suggestions
 - All AI features gracefully degrade if API key not provided or `anthropic` package not installed
+
+### PAS API Features (Optional)
+- **Part Search**: Search for parts using manufacturer + part number
+- **Match Types**: Returns exact, partial, or no_match results
+- **Enriching Data**: Retrieves distributor info, pricing tiers, stock, lead times
+- **Supply Chain Data**: Lifecycle status, risk rank, authorized distributors
+- **Batch Processing**: Searches multiple parts with progress tracking
+- Configured via bearer token from Siemens OAuth service
 
 ## Utility Scripts
 
 - `AccessToExcel/Summary.py`: Generates manufacturer statistics and catalog summaries from exported Excel files
 - `AccessToExcel/Unit_Test.py`: Test suite for the AccessToExcel functionality
+- `Part Aggeration Service/example.py`: Standalone PAS API client with batch CSV processing and HTML report generation
+
+## PAS API Architecture
+
+The PAS (Part Aggregation Service) integration provides a modern alternative to static XML generation:
+
+### PASAPIClient Class (`Part Aggeration Service/example.py`)
+- **Authentication**: OAuth 2.0 client credentials flow with automatic token refresh
+- **Search Endpoint**: `/api/v2/search-providers/{providerId}/{version}/free-text/search`
+- **Enriching**: Configurable enriching providers for extended data (Supply Chain enricher ID: 33)
+- **Output Formats**: Excel with color-coded match types, HTML report with interactive filtering, raw JSON responses
+
+### Integration in EDM Wizard
+- **PASSearchPage**: Batch searches parts from combined data with progress bar
+- **PASAPIClient instance**: Shared across wizard for authentication and searches
+- **Match Review**: SupplyFrameReviewPage displays search results with distributor data
+- **Fallback**: If PAS search is skipped, wizard falls back to legacy XML generation
+
+### Configuration
+- Bearer token stored in `QSettings` for persistence across sessions
+- API endpoint: `https://api.pas.partquest.com`
+- Auth service: `https://samauth.us-east-1.sws.siemens.com/`
+- Search provider ID: 44 (default)
+- Supply Chain enricher ID: 33 (version 1)

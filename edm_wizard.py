@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from xml.dom import minidom
 import time
 import requests
+import threading
 
 try:
     from PyQt5.QtWidgets import (
@@ -23,7 +24,8 @@ try:
         QRadioButton, QPushButton, QLabel, QLineEdit, QFileDialog,
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
-        QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu
+        QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu,
+        QTabWidget
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -162,18 +164,25 @@ class StartPage(QWizardPage):
 
         # Client ID
         client_id_layout = QHBoxLayout()
-        client_id_layout.addWidget(QLabel("Client ID:"))
+        client_id_label = QLabel("Client ID:")
+        client_id_label.setMinimumWidth(100)
+        client_id_layout.addWidget(client_id_label)
         self.client_id_input = QLineEdit()
         self.client_id_input.setPlaceholderText("Enter PAS Client ID...")
+        self.client_id_input.setMinimumWidth(400)  # Make wider to show full text
         self.client_id_input.textChanged.connect(self.on_pas_credentials_changed)
         client_id_layout.addWidget(self.client_id_input)
+        client_id_layout.addStretch()
         pas_layout.addLayout(client_id_layout)
 
         # Client Secret
         secret_layout = QHBoxLayout()
-        secret_layout.addWidget(QLabel("Client Secret:"))
+        secret_label = QLabel("Client Secret:")
+        secret_label.setMinimumWidth(100)
+        secret_layout.addWidget(secret_label)
         self.client_secret_input = QLineEdit()
         self.client_secret_input.setPlaceholderText("Enter PAS Client Secret...")
+        self.client_secret_input.setMinimumWidth(400)  # Make wider to show full text
         self.client_secret_input.setEchoMode(QLineEdit.Password)
         self.client_secret_input.textChanged.connect(self.on_pas_credentials_changed)
         secret_layout.addWidget(self.client_secret_input)
@@ -183,6 +192,7 @@ class StartPage(QWizardPage):
         self.show_secret_btn.setMaximumWidth(60)
         self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
         secret_layout.addWidget(self.show_secret_btn)
+        secret_layout.addStretch()
         pas_layout.addLayout(secret_layout)
 
         # Save PAS credentials checkbox
@@ -205,32 +215,35 @@ class StartPage(QWizardPage):
         pas_group.setLayout(pas_layout)
         layout.addWidget(pas_group)
 
-        # SearchAndAssign Tool Configuration
-        tool_group = QGroupBox("🔧 SearchAndAssign Tool Configuration")
+        # SDD_HOME Directory Configuration
+        tool_group = QGroupBox("🔧 SDD_HOME Directory")
         tool_layout = QVBoxLayout()
 
         tool_info = QLabel(
-            "The SearchAndAssign tool automatically searches for parts using PAS and generates CSV results.\n"
-            "Provide the mglaunch.exe path to enable automatic search."
+            "Specify the SDD_HOME directory for Siemens EDA tools (optional)."
         )
         tool_info.setWordWrap(True)
         tool_layout.addWidget(tool_info)
 
-        # mglaunch.exe path
-        mglaunch_layout = QHBoxLayout()
-        mglaunch_layout.addWidget(QLabel("mglaunch.exe Path:"))
+        # SDD_HOME path
+        sdd_layout = QHBoxLayout()
+        sdd_label = QLabel("SDD_HOME:")
+        sdd_label.setMinimumWidth(100)
+        sdd_layout.addWidget(sdd_label)
         self.mglaunch_input = QLineEdit()
-        self.mglaunch_input.setPlaceholderText("C:\\SiemensEDA\\XPED2510\\SDD_HOME\\common\\win64\\bin\\mglaunch.exe")
-        mglaunch_layout.addWidget(self.mglaunch_input)
+        self.mglaunch_input.setPlaceholderText("C:\\SiemensEDA\\XPED2510\\SDD_HOME")
+        self.mglaunch_input.setMinimumWidth(400)
+        sdd_layout.addWidget(self.mglaunch_input)
 
         mglaunch_browse = QPushButton("Browse...")
         mglaunch_browse.clicked.connect(self.browse_mglaunch)
-        mglaunch_layout.addWidget(mglaunch_browse)
-        tool_layout.addLayout(mglaunch_layout)
+        sdd_layout.addWidget(mglaunch_browse)
+        sdd_layout.addStretch()
+        tool_layout.addLayout(sdd_layout)
 
         # Auto-detect button
         detect_layout = QHBoxLayout()
-        self.detect_btn = QPushButton("Auto-Detect mglaunch.exe")
+        self.detect_btn = QPushButton("Auto-Detect SDD_HOME")
         self.detect_btn.clicked.connect(self.auto_detect_mglaunch)
         detect_layout.addWidget(self.detect_btn)
 
@@ -239,17 +252,39 @@ class StartPage(QWizardPage):
         detect_layout.addStretch()
         tool_layout.addLayout(detect_layout)
 
-        # Enable SearchAndAssign checkbox
-        self.enable_searchassign_checkbox = QCheckBox("Enable automatic SearchAndAssign after XML generation")
-        self.enable_searchassign_checkbox.setChecked(True)
-        self.enable_searchassign_checkbox.setToolTip(
-            "When enabled, SearchAndAssign will run automatically after XML generation\n"
-            "to search for parts and create the CSV file for review in Step 4."
-        )
-        tool_layout.addWidget(self.enable_searchassign_checkbox)
-
         tool_group.setLayout(tool_layout)
         layout.addWidget(tool_group)
+
+        # Output Settings section
+        output_group = QGroupBox("📁 Output Settings")
+        output_layout = QVBoxLayout()
+
+        output_info = QLabel(
+            "Specify the folder where output files (CSV, Excel) will be saved."
+        )
+        output_info.setWordWrap(True)
+        output_layout.addWidget(output_info)
+
+        # Output folder selection
+        folder_layout = QHBoxLayout()
+        folder_layout.addWidget(QLabel("Output Folder:"))
+        self.output_folder_input = QLineEdit()
+        self.output_folder_input.setPlaceholderText("Select output folder...")
+        self.output_folder_input.setReadOnly(True)
+        folder_layout.addWidget(self.output_folder_input)
+
+        browse_output_btn = QPushButton("Browse...")
+        browse_output_btn.clicked.connect(self.browse_output_folder)
+        folder_layout.addWidget(browse_output_btn)
+
+        auto_folder_btn = QPushButton("Auto-Generate")
+        auto_folder_btn.setToolTip("Create timestamped output folder in current directory")
+        auto_folder_btn.clicked.connect(self.auto_generate_output_folder)
+        folder_layout.addWidget(auto_folder_btn)
+
+        output_layout.addLayout(folder_layout)
+        output_group.setLayout(output_layout)
+        layout.addWidget(output_group)
 
         # Skip AI section
         skip_layout = QHBoxLayout()
@@ -482,6 +517,79 @@ class StartPage(QWizardPage):
 
         self.test_pas_btn.setEnabled(True)
 
+    def browse_mglaunch(self):
+        """Browse for SDD_HOME directory"""
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select SDD_HOME Directory",
+            "C:\\SiemensEDA"
+        )
+        if directory:
+            self.mglaunch_input.setText(directory)
+            self.detect_status.setText("✓ Directory set manually")
+            self.detect_status.setStyleSheet("color: green;")
+
+    def auto_detect_mglaunch(self):
+        """Attempt to auto-detect SDD_HOME directory by searching for XPED installations"""
+        self.detect_status.setText("Searching...")
+        self.detect_status.setStyleSheet("color: blue;")
+        self.detect_btn.setEnabled(False)
+        QApplication.processEvents()
+
+        # Search for any XPED installation in common root directories
+        found_paths = []
+        try:
+            for root_path in [r"C:\SiemensEDA", r"C:\MentorGraphics", r"C:\Program Files\SiemensEDA", r"C:\Program Files\MentorGraphics"]:
+                if os.path.exists(root_path):
+                    # Search for directories matching *XPED* pattern
+                    for item in os.listdir(root_path):
+                        item_path = os.path.join(root_path, item)
+                        # Check if it's a directory and contains "XPED" (case-insensitive)
+                        if os.path.isdir(item_path) and "XPED" in item.upper():
+                            # Check if SDD_HOME subdirectory exists
+                            sdd_home_path = os.path.join(item_path, "SDD_HOME")
+                            if os.path.exists(sdd_home_path) and os.path.isdir(sdd_home_path):
+                                found_paths.append((sdd_home_path, item))
+        except Exception as e:
+            pass
+
+        # If we found any XPED installations with SDD_HOME, use the first one (or latest version)
+        if found_paths:
+            # Sort by version number (extract from name) - prefer higher versions
+            def extract_version(name):
+                # Extract numeric part from names like "XPED2510"
+                import re
+                match = re.search(r'XPED(\d+)', name.upper())
+                return int(match.group(1)) if match else 0
+
+            found_paths.sort(key=lambda x: extract_version(x[1]), reverse=True)
+            sdd_path, version_name = found_paths[0]
+
+            self.mglaunch_input.setText(sdd_path)
+            self.detect_status.setText(f"✓ Found: {version_name}")
+            self.detect_status.setStyleSheet("color: green;")
+            self.detect_btn.setEnabled(True)
+            return
+
+        # Not found
+        self.detect_status.setText("✗ Not found - please browse manually")
+        self.detect_status.setStyleSheet("color: orange;")
+        self.detect_btn.setEnabled(True)
+
+    def browse_output_folder(self):
+        """Browse for output directory"""
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        if directory:
+            self.output_folder_input.setText(directory)
+
+    def auto_generate_output_folder(self):
+        """Auto-generate timestamped output folder"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_dir = Path.cwd()
+        output_folder = base_dir / f"EDM_Output_{timestamp}"
+        output_folder.mkdir(exist_ok=True)
+        self.output_folder_input.setText(str(output_folder))
+
     def skip_ai(self):
         """Skip AI features and continue without API key"""
         self.skip_ai_mode = True
@@ -538,6 +646,17 @@ class StartPage(QWizardPage):
             if reply == QMessageBox.No:
                 return False
 
+        # Check if output folder is selected
+        if not self.output_folder_input.text().strip():
+            reply = QMessageBox.warning(
+                self,
+                "Output Folder Required",
+                "Please select an output folder for the results.\n\n"
+                "Click 'Browse...' to select a folder or 'Auto-Generate' to create one automatically.",
+                QMessageBox.Ok
+            )
+            return False
+
         # Save credentials based on checkboxes
         self.save_credentials()
 
@@ -559,6 +678,10 @@ class StartPage(QWizardPage):
                 'client_secret': client_secret
             }
         return None
+
+    def get_output_folder(self):
+        """Get the selected output folder"""
+        return self.output_folder_input.text().strip()
 
 
 class AccessExportThread(QThread):
@@ -818,6 +941,7 @@ class DataSourcePage(QWizardPage):
 
         self.preview_label = QLabel("No data loaded")
         self.preview_table = QTableWidget()
+        self.preview_table.setSortingEnabled(True)  # Enable sorting
 
         preview_layout.addLayout(sheet_selector_layout)
         preview_layout.addWidget(self.preview_label)
@@ -1104,6 +1228,7 @@ class ColumnMappingPage(QWizardPage):
         self.mapping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.mapping_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.mapping_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.mapping_table.setSortingEnabled(True)  # Enable sorting
         self.mapping_table.itemSelectionChanged.connect(self.on_sheet_selected)
 
         # Save/Load configuration buttons
@@ -1121,24 +1246,46 @@ class ColumnMappingPage(QWizardPage):
         mapping_group.setLayout(mapping_layout)
         left_layout.addWidget(mapping_group, stretch=1)  # Mapping fills available space
 
-        # Combine options
+        # Combine options (mandatory - always enabled)
         combine_group = QGroupBox("Combine Options")
         combine_layout = QVBoxLayout()
 
-        self.combine_checkbox = QCheckBox("Combine selected sheets into single 'Combined' sheet")
-        self.combine_checkbox.toggled.connect(self.toggle_combine_options)
+        # Info label explaining that combining is mandatory
+        combine_info = QLabel("ℹ️ Sheets will be automatically combined for PAS search")
+        combine_info.setStyleSheet("color: #0066cc; font-weight: bold;")
+        combine_layout.addWidget(combine_info)
 
-        self.filter_group = QGroupBox("Filter Conditions (rows must meet ALL checked conditions)")
+        # Explanatory text about what gets combined
+        explanation = QLabel(
+            "The combined data will include:\n"
+            "  • MFG = Manufacturer Name (e.g., 'Texas Instruments')\n"
+            "  • MFG PN = Manufacturer Part Number (e.g., 'TPS54360DDAR') ← Used for PAS search\n"
+            "  • Part Number = Your internal/company part number (not used for PAS search)\n"
+            "  • Description = Part description\n\n"
+            "Use filters below to exclude rows with missing data:"
+        )
+        explanation.setStyleSheet("font-size: 10pt; color: #555; padding: 10px; background-color: #f5f5f5; border-radius: 5px;")
+        explanation.setWordWrap(True)
+        combine_layout.addWidget(explanation)
+
+        self.filter_group = QGroupBox("Data Quality Filters (exclude rows that don't meet ALL checked conditions)")
         filter_layout = QVBoxLayout()
 
-        self.filter_mfg = QCheckBox("MFG must not be empty")
-        self.filter_mfg_pn = QCheckBox("MFG PN must not be empty")
-        self.filter_part_number = QCheckBox("Part Number must not be empty")
-        self.filter_description = QCheckBox("Description must not be empty")
+        self.filter_mfg = QCheckBox("Require MFG (Manufacturer Name)")
+        self.filter_mfg.setToolTip("Exclude rows where Manufacturer Name is empty or missing")
+
+        self.filter_mfg_pn = QCheckBox("Require MFG PN (Manufacturer Part Number)")
+        self.filter_mfg_pn.setToolTip("Exclude rows where Manufacturer Part Number is empty or missing.\nRECOMMENDED: Check this to avoid PAS search errors.")
+
+        self.filter_part_number = QCheckBox("Require Part Number (Internal/Company Part Number)")
+        self.filter_part_number.setToolTip("Exclude rows where your internal Part Number is empty or missing")
+
+        self.filter_description = QCheckBox("Require Description")
+        self.filter_description.setToolTip("Exclude rows where Description is empty or missing")
 
         # TBD fill option
-        self.fill_tbd_checkbox = QCheckBox("Fill empty MFG values with 'TBD'")
-        self.fill_tbd_checkbox.setToolTip("If MFG PN is not empty but MFG is empty, set MFG to 'TBD'")
+        self.fill_tbd_checkbox = QCheckBox("Auto-fill empty MFG with 'TBD' when MFG PN exists")
+        self.fill_tbd_checkbox.setToolTip("If Manufacturer Part Number exists but Manufacturer Name is missing, automatically set MFG to 'TBD'")
 
         filter_layout.addWidget(self.filter_mfg)
         filter_layout.addWidget(self.filter_mfg_pn)
@@ -1147,9 +1294,9 @@ class ColumnMappingPage(QWizardPage):
         filter_layout.addWidget(self.fill_tbd_checkbox)
 
         self.filter_group.setLayout(filter_layout)
-        self.filter_group.setEnabled(False)
+        # Enable filter group by default since combining is mandatory
+        self.filter_group.setEnabled(True)
 
-        combine_layout.addWidget(self.combine_checkbox)
         combine_layout.addWidget(self.filter_group)
         combine_group.setLayout(combine_layout)
         left_layout.addWidget(combine_group)  # Combine stays at bottom, no stretch
@@ -1166,6 +1313,7 @@ class ColumnMappingPage(QWizardPage):
         preview_layout.addWidget(self.preview_label)
 
         self.preview_table = QTableWidget()
+        self.preview_table.setSortingEnabled(True)  # Enable sorting
         preview_layout.addWidget(self.preview_table)
 
         preview_group.setLayout(preview_layout)
@@ -1188,6 +1336,11 @@ class ColumnMappingPage(QWizardPage):
 
         self.sheet_mappings = {}
         self.dataframes = {}
+        self.combined_data = None  # Will store combined dataframe for PAS Search
+
+        # Set recommended defaults for filters
+        self.filter_mfg.setChecked(True)  # Require MFG by default
+        self.filter_mfg_pn.setChecked(True)  # Require MFG PN by default (CRITICAL for PAS search)
 
     def initializePage(self):
         """Initialize page with data from previous step"""
@@ -1333,10 +1486,6 @@ class ColumnMappingPage(QWizardPage):
                 combo.setProperty("sheet_name", sheet_name)
                 combo.setProperty("mapping_type", mapping_type)
                 self.mapping_table.setCellWidget(row, col_idx, combo)
-
-    def toggle_combine_options(self, checked):
-        """Enable/disable combine filter options"""
-        self.filter_group.setEnabled(checked)
 
     def get_included_sheets(self):
         """Get list of sheets that are checked for inclusion"""
@@ -1586,8 +1735,8 @@ class ColumnMappingPage(QWizardPage):
         return mappings
 
     def should_combine(self):
-        """Check if sheets should be combined"""
-        return self.combine_checkbox.isChecked()
+        """Check if sheets should be combined - always True (mandatory)"""
+        return True
 
     def get_filter_conditions(self):
         """Get filter conditions for combining"""
@@ -1707,6 +1856,9 @@ class ColumnMappingPage(QWizardPage):
         if combined_data:
             combined_df = pd.concat(combined_data, ignore_index=True)
 
+            # Store combined data for PAS Search page to access
+            self.combined_data = combined_df
+
             # Write combined sheet to original Excel file
             with pd.ExcelFile(excel_path) as xls:
                 existing_sheets = {sheet: pd.read_excel(excel_path, sheet_name=sheet)
@@ -1723,6 +1875,9 @@ class ColumnMappingPage(QWizardPage):
                 f"Successfully combined {len(included_sheets)} sheets into 'Combined' sheet.\n"
                 f"Total rows: {len(combined_df)}"
             )
+        else:
+            # No data after filtering - set empty dataframe
+            self.combined_data = pd.DataFrame()
 
 
 class PASSearchPage(QWizardPage):
@@ -1748,39 +1903,6 @@ class PASSearchPage(QWizardPage):
         info_group.setLayout(info_layout)
         layout.addWidget(info_group)
 
-        # Project settings (for later XML generation)
-        settings_group = QGroupBox("Project Settings")
-        settings_layout = QGridLayout()
-
-        settings_layout.addWidget(QLabel("Project Name:"), 0, 0)
-        self.project_name = QLineEdit("VarTrainingLab")
-        settings_layout.addWidget(self.project_name, 0, 1)
-
-        settings_layout.addWidget(QLabel("Catalog:"), 1, 0)
-        self.catalog = QLineEdit("VV")
-        settings_layout.addWidget(self.catalog, 1, 1)
-
-        settings_group.setLayout(settings_layout)
-        layout.addWidget(settings_group)
-
-        # Output settings
-        output_group = QGroupBox("Output Settings")
-        output_layout = QVBoxLayout()
-
-        location_layout = QHBoxLayout()
-        location_layout.addWidget(QLabel("Output Location:"))
-        self.output_path = QLineEdit()
-        self.output_path.setReadOnly(True)
-        location_layout.addWidget(self.output_path)
-
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self.browse_output)
-        location_layout.addWidget(browse_btn)
-
-        output_layout.addLayout(location_layout)
-        output_group.setLayout(output_layout)
-        layout.addWidget(output_group)
-
         # Search button
         self.search_button = QPushButton("🔍 Start Part Search")
         self.search_button.clicked.connect(self.start_search)
@@ -1804,19 +1926,53 @@ class PASSearchPage(QWizardPage):
         # Progress
         self.progress_label = QLabel("")
         layout.addWidget(self.progress_label)
-        
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
+
+        # Results Preview (real-time grid)
+        results_group = QGroupBox("📊 Search Results Preview")
+        results_layout = QVBoxLayout()
+
+        self.results_table = QTableWidget()
+        self.results_table.setColumnCount(5)
+        self.results_table.setHorizontalHeaderLabels([
+            "Part Number",
+            "Manufacturer",
+            "Match Status",
+            "Match Details",
+            "Search Time"
+        ])
+
+        # Enable sorting
+        self.results_table.setSortingEnabled(True)
+
+        # Set column resize modes
+        header = self.results_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Manufacturer
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Match Status
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Match Details
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Search Time
+
+        self.results_table.setAlternatingRowColors(True)
+        self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.results_table.setSelectionMode(QTableWidget.SingleSelection)
+
+        results_layout.addWidget(self.results_table)
+        results_group.setLayout(results_layout)
+        layout.addWidget(results_group, stretch=1)
 
         # Summary
         summary_group = QGroupBox("Search Summary")
         summary_layout = QVBoxLayout()
         self.summary_text = QTextEdit()
         self.summary_text.setReadOnly(True)
+        self.summary_text.setMaximumHeight(100)  # Limit height
         summary_layout.addWidget(self.summary_text)
         summary_group.setLayout(summary_layout)
-        layout.addWidget(summary_group, stretch=1)
+        layout.addWidget(summary_group)
 
         self.setLayout(layout)
 
@@ -1826,29 +1982,44 @@ class PASSearchPage(QWizardPage):
         self.csv_output_path = None
 
     def initializePage(self):
-        """Initialize with default output path and prepare data"""
-        prev_page = self.wizard().page(1)  # DataSourcePage
-        excel_path = prev_page.get_excel_path()
+        """Initialize and automatically load data from Step 3"""
+        # Get data from ColumnMappingPage (Step 3)
+        column_mapping_page = self.wizard().page(2)  # ColumnMappingPage is page 2
 
-        if excel_path:
-            # Create timestamped folder
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_dir = Path(excel_path).parent
-            output_folder = base_dir / f"EDM_Output_{timestamp}"
-            output_folder.mkdir(exist_ok=True)
+        # Check if data is available
+        if hasattr(column_mapping_page, 'combined_data') and column_mapping_page.combined_data is not None:
+            # Check if DataFrame is not empty
+            if not column_mapping_page.combined_data.empty:
+                # Use the combined data directly from ColumnMappingPage
+                self.combined_data = column_mapping_page.combined_data
 
-            self.output_path.setText(str(output_folder))
-            self.timestamp = timestamp
-
-    def browse_output(self):
-        """Browse for output directory"""
-        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
-        if directory:
-            self.output_path.setText(directory)
+                # Update info label to show data is loaded
+                parts_count = len(self.combined_data)
+                self.progress_label.setText(f"✓ Loaded {parts_count} parts from Step 3. Click 'Start Part Search' to begin.")
+                self.progress_label.setStyleSheet("color: green; font-weight: bold;")
+                self.search_button.setEnabled(True)
+            else:
+                self.progress_label.setText("⚠ No data available after filtering. Please go back to Step 3 and adjust filter conditions.")
+                self.progress_label.setStyleSheet("color: orange;")
+                self.search_button.setEnabled(False)
+        else:
+            self.progress_label.setText("⚠ No data available. Please go back to Step 3 and ensure data is combined.")
+            self.progress_label.setStyleSheet("color: orange;")
+            self.search_button.setEnabled(False)
 
     def start_search(self):
-        """Start the PAS search process"""
+        """Start the PAS search process using preloaded data"""
         try:
+            # Validate that data is loaded
+            if self.combined_data is None or self.combined_data.empty:
+                QMessageBox.warning(
+                    self,
+                    "No Data",
+                    "No parts data available to search.\n\n"
+                    "Please go back to Step 3 and ensure data is combined."
+                )
+                return
+
             # Get PAS credentials from Start Page
             start_page = self.wizard().page(0)
             pas_creds = start_page.get_pas_credentials() if hasattr(start_page, 'get_pas_credentials') else None
@@ -1862,41 +2033,14 @@ class PASSearchPage(QWizardPage):
                 )
                 return
 
-            # Get data from previous steps
-            prev_page_0 = self.wizard().page(1)  # DataSourcePage
-            prev_page_1 = self.wizard().page(2)  # ColumnMappingPage
-
-            excel_path = prev_page_0.get_excel_path()
-            dataframes = prev_page_0.get_dataframes()
-            mappings = prev_page_1.get_mappings()
-            output_dir = Path(self.output_path.text())
-
-            # Prepare combined data
-            self.combined_data = []
-
-            # Check if Combined sheet should be used
-            if prev_page_1.should_combine():
-                xl_file = pd.ExcelFile(excel_path)
-                if 'Combined' in xl_file.sheet_names:
-                    combined_df = pd.read_excel(excel_path, sheet_name='Combined')
-                    for _, row in combined_df.iterrows():
-                        if pd.notna(row.get('MFG')) and pd.notna(row.get('MFG_PN')):
-                            self.combined_data.append({
-                                'MFG': str(row['MFG']).strip(),
-                                'MFG_PN': str(row['MFG_PN']).strip(),
-                                'Description': str(row.get('Description', '')) if pd.notna(row.get('Description')) else ''
-                            })
-                else:
-                    self.extract_from_sheets(dataframes, mappings)
-            else:
-                self.extract_from_sheets(dataframes, mappings)
-
-            if not self.combined_data:
+            # Get output folder from StartPage
+            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
+            if not output_folder:
                 QMessageBox.warning(
                     self,
-                    "No Data",
-                    "No parts data found to search.\n\n"
-                    "Please check your column mappings in Step 2."
+                    "Missing Output Folder",
+                    "Output folder is not configured.\n\n"
+                    "Please go back to Step 1 and select an output folder."
                 )
                 return
 
@@ -1912,9 +2056,20 @@ class PASSearchPage(QWizardPage):
             self.progress_bar.setMaximum(len(self.combined_data))
             self.progress_bar.setValue(0)
 
-            # Start search thread
-            self.search_thread = PASSearchThread(pas_client, self.combined_data)
+            # Store output folder for later use
+            self.output_folder = Path(output_folder)
+
+            # Clear results table
+            self.results_table.setRowCount(0)
+
+            # Convert DataFrame to list of dictionaries for the search thread
+            parts_list = self.combined_data.to_dict('records')
+
+            # Start search thread with parallel execution
+            # max_workers=10 means 10 concurrent PAS API calls (adjustable for performance)
+            self.search_thread = PASSearchThread(pas_client, parts_list, max_workers=10)
             self.search_thread.progress.connect(self.on_search_progress)
+            self.search_thread.result_ready.connect(self.on_result_ready)  # Real-time display
             self.search_thread.finished.connect(self.on_search_finished)
             self.search_thread.error.connect(self.on_search_error)
             self.search_thread.start()
@@ -1952,16 +2107,65 @@ class PASSearchPage(QWizardPage):
         self.progress_label.setText(message)
         self.progress_bar.setValue(current)
 
+    def on_result_ready(self, result):
+        """Add individual result to table in real-time"""
+        from datetime import datetime
+
+        # Temporarily disable sorting while adding row
+        self.results_table.setSortingEnabled(False)
+
+        row_position = self.results_table.rowCount()
+        self.results_table.insertRow(row_position)
+
+        # Part Number (convert to string to handle numeric part numbers)
+        self.results_table.setItem(row_position, 0, QTableWidgetItem(str(result['PartNumber'])))
+
+        # Manufacturer (convert to string to handle any numeric values)
+        self.results_table.setItem(row_position, 1, QTableWidgetItem(str(result['ManufacturerName'])))
+
+        # Match Status (with color coding)
+        status_item = QTableWidgetItem(result['MatchStatus'])
+        if result['MatchStatus'] == 'Found':
+            status_item.setBackground(QColor(230, 255, 230))  # Light green
+        elif result['MatchStatus'] == 'Multiple':
+            status_item.setBackground(QColor(255, 240, 200))  # Light orange
+        elif result['MatchStatus'] == 'Need user review':
+            status_item.setBackground(QColor(230, 240, 255))  # Light blue
+        elif result['MatchStatus'] == 'None':
+            status_item.setBackground(QColor(240, 240, 240))  # Light gray
+        elif result['MatchStatus'] == 'Error':
+            status_item.setBackground(QColor(255, 230, 230))  # Light red
+        self.results_table.setItem(row_position, 2, status_item)
+
+        # Match Details
+        matches = result.get('matches', [])
+        if matches:
+            match_details = ', '.join(matches[:3])  # Show first 3 matches
+            if len(matches) > 3:
+                match_details += f' ... (+{len(matches) - 3} more)'
+        else:
+            match_details = 'No matches found'
+        self.results_table.setItem(row_position, 3, QTableWidgetItem(match_details))
+
+        # Search Time
+        current_time = datetime.now().strftime("%H:%M:%S")
+        self.results_table.setItem(row_position, 4, QTableWidgetItem(current_time))
+
+        # Re-enable sorting
+        self.results_table.setSortingEnabled(True)
+
+        # Auto-scroll to latest result
+        self.results_table.scrollToBottom()
+
     def on_search_finished(self, results):
         """Handle search completion"""
         self.search_results = results
         self.search_completed = True
 
-        # Save results to CSV
-        output_dir = Path(self.output_path.text())
+        # Save results to CSV in output folder from StartPage
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         csv_filename = f"SearchAndAssign_Result_{timestamp}.csv"
-        self.csv_output_path = output_dir / csv_filename
+        self.csv_output_path = self.output_folder / csv_filename
 
         try:
             self.save_results_csv()
@@ -2676,89 +2880,146 @@ IMPORTANT:
 
 
 class PASSearchThread(QThread):
-    """Background thread for searching parts via PAS API"""
+    """Background thread for searching parts via PAS API with parallel execution"""
     progress = pyqtSignal(str, int, int)  # message, current, total
-    finished = pyqtSignal(list)  # search results
+    result_ready = pyqtSignal(dict)  # individual result for real-time display
+    finished = pyqtSignal(list)  # all search results
     error = pyqtSignal(str)
 
-    def __init__(self, pas_client, parts_data):
+    def __init__(self, pas_client, parts_data, max_workers=10):
         super().__init__()
         self.pas_client = pas_client
         self.parts_data = parts_data  # List of {'MFG': ..., 'MFG_PN': ..., 'Description': ...}
+        self.max_workers = max_workers  # Number of parallel threads
+        self.completed_count = 0
+        self.lock = threading.Lock()
+
+    def search_single_part(self, idx, part, total):
+        """Search a single part with retry logic"""
+        manufacturer = part.get('MFG', '')
+        part_number = part.get('MFG_PN', '')
+
+        # Handle NaN values from pandas (convert to empty string)
+        import math
+        if isinstance(manufacturer, float) and math.isnan(manufacturer):
+            manufacturer = ''
+        if isinstance(part_number, float) and math.isnan(part_number):
+            part_number = ''
+
+        # Convert to string and strip whitespace
+        manufacturer = str(manufacturer).strip() if manufacturer else ''
+        part_number = str(part_number).strip() if part_number else ''
+
+        if not manufacturer or not part_number:
+            with self.lock:
+                self.completed_count += 1
+                self.progress.emit(f"Skipping part {self.completed_count}/{total} (missing MFG or Manufacturer PN)...", self.completed_count, total)
+            return {
+                'PartNumber': part_number if part_number else '(empty)',
+                'ManufacturerName': manufacturer if manufacturer else '(empty)',
+                'MatchStatus': 'None',
+                'matches': []
+            }
+
+        with self.lock:
+            self.completed_count += 1
+            current = self.completed_count
+
+        self.progress.emit(
+            f"Searching Manufacturer PN {current}/{total}: {manufacturer} - {part_number}...",
+            current,
+            total
+        )
+
+        # Search with retry logic (like SearchAndAssignApp - 3 retries)
+        match_result = None
+        match_type = None
+        retry_count = 0
+        max_retries = 3
+
+        while retry_count < max_retries:
+            try:
+                match_result, match_type = self.pas_client.search_part(part_number, manufacturer)
+                break  # Success
+            except Exception as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    self.progress.emit(
+                        f"Retry {retry_count}/{max_retries} for {manufacturer} {part_number}...",
+                        current,
+                        total
+                    )
+                    time.sleep(3)  # Wait 3 seconds before retry
+                else:
+                    match_result = {'error': str(e)}
+                    match_type = 'Error'
+
+        # Map match_type to status (using SearchAndAssign terminology)
+        if match_type in ['Found', 'Multiple', 'Need user review', 'None', 'Error']:
+            status = match_type
+        else:
+            # Legacy mapping for backwards compatibility
+            if match_type == 'exact':
+                status = 'Found'
+            elif match_type == 'partial':
+                matches = match_result.get('matches', [])
+                if len(matches) > 1:
+                    status = 'Multiple'
+                elif len(matches) == 1:
+                    status = 'Found'
+                else:
+                    status = 'None'
+            elif match_type == 'no_match':
+                status = 'None'
+            else:  # error
+                status = 'Error'
+
+        result_dict = {
+            'PartNumber': part_number,
+            'ManufacturerName': manufacturer,
+            'MatchStatus': status,
+            'matches': match_result.get('matches', []) if match_type != 'Error' else []
+        }
+
+        # Emit individual result for real-time display
+        self.result_ready.emit(result_dict)
+
+        return result_dict
 
     def run(self):
         try:
-            results = []
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            results = [None] * len(self.parts_data)  # Pre-allocate to maintain order
             total = len(self.parts_data)
-            
-            for idx, part in enumerate(self.parts_data):
-                manufacturer = part.get('MFG', '')
-                part_number = part.get('MFG_PN', '')
-                
-                if not manufacturer or not part_number:
-                    self.progress.emit(f"Skipping part {idx + 1}/{total} (missing data)...", idx + 1, total)
-                    results.append({
-                        'PartNumber': part_number,
-                        'ManufacturerName': manufacturer,
-                        'MatchStatus': 'None',
-                        'matches': []
-                    })
-                    continue
-                
-                self.progress.emit(
-                    f"Searching part {idx + 1}/{total}: {manufacturer} {part_number}...",
-                    idx + 1,
-                    total
-                )
-                
-                # Search with retry logic (like SearchAndAssignApp - 3 retries)
-                match_result = None
-                match_type = None
-                retry_count = 0
-                max_retries = 3
-                
-                while retry_count < max_retries:
+            self.completed_count = 0
+
+            # Use ThreadPoolExecutor for parallel execution
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit all tasks
+                future_to_idx = {
+                    executor.submit(self.search_single_part, idx, part, total): idx
+                    for idx, part in enumerate(self.parts_data)
+                }
+
+                # Collect results as they complete
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
                     try:
-                        match_result, match_type = self.pas_client.search_part(part_number, manufacturer)
-                        break  # Success
+                        result = future.result()
+                        results[idx] = result
                     except Exception as e:
-                        retry_count += 1
-                        if retry_count < max_retries:
-                            self.progress.emit(
-                                f"Retry {retry_count}/{max_retries} for {manufacturer} {part_number}...",
-                                idx + 1,
-                                total
-                            )
-                            time.sleep(3)  # Wait 3 seconds before retry
-                        else:
-                            match_result = {'error': str(e)}
-                            match_type = 'error'
-                
-                # Determine match status for CSV
-                if match_type == 'exact':
-                    status = 'Found'
-                elif match_type == 'partial':
-                    matches = match_result.get('matches', [])
-                    if len(matches) > 1:
-                        status = 'Multiple'
-                    elif len(matches) == 1:
-                        status = 'Found'
-                    else:
-                        status = 'None'
-                elif match_type == 'no_match':
-                    status = 'None'
-                else:  # error
-                    status = 'Need user review'
-                
-                results.append({
-                    'PartNumber': part_number,
-                    'ManufacturerName': manufacturer,
-                    'MatchStatus': status,
-                    'matches': match_result.get('matches', []) if match_type != 'error' else []
-                })
-            
+                        # Handle unexpected errors
+                        self.progress.emit(f"Error processing part {idx + 1}: {str(e)}", idx + 1, total)
+                        results[idx] = {
+                            'PartNumber': self.parts_data[idx].get('MFG_PN', ''),
+                            'ManufacturerName': self.parts_data[idx].get('MFG', ''),
+                            'MatchStatus': 'Error',
+                            'matches': []
+                        }
+
             self.finished.emit(results)
-            
+
         except Exception as e:
             self.error.emit(str(e))
 
@@ -2809,16 +3070,50 @@ class PASAPIClient:
     
     def search_part(self, manufacturer_pn, manufacturer):
         """
-        Search for a part using PAS API
+        Search for a part using PAS API with SearchAndAssign matching algorithm
+
+        Implements the exact matching logic from SearchAndAssignApp.java:
+        1. Exact match: PartNumber AND ManufacturerName both exact
+        2. Partial manufacturer match: PartNumber exact, ManufacturerName contains
+        3. Alphanumeric-only match: Strip special chars, compare alphanumeric only
+        4. Leading zero suppression: Remove leading zeros and compare
+        5. PartNumber-only search: If manufacturer empty/unknown
+
         Returns: (result_dict, match_type)
-        match_type: 'exact', 'partial', 'no_match', or 'error'
+        match_type: 'Found', 'Multiple', 'Need user review', 'None', or 'Error'
         """
+        import re
+
+        try:
+            # Perform PAS search
+            search_results = self._perform_pas_search(manufacturer_pn, manufacturer)
+
+            if 'error' in search_results:
+                return {'error': search_results['error']}, 'Error'
+
+            parts = search_results.get('results', [])
+
+            if not parts:
+                return {'matches': []}, 'None'
+
+            # Apply SearchAndAssign matching algorithm
+            match_result = self._apply_searchandassign_matching(
+                manufacturer_pn, manufacturer, parts
+            )
+
+            return match_result
+
+        except Exception as e:
+            return {'error': str(e)}, 'Error'
+
+    def _perform_pas_search(self, manufacturer_pn, manufacturer):
+        """Perform the actual PAS API search"""
         try:
             token = self._get_access_token()
-            
+
             # Search endpoint
             endpoint = '/api/v2/search-providers/44/2/free-text/search'
-            
+
             headers = {
                 'Authorization': f'Bearer {token}',
                 'Content-Type': 'application/json',
@@ -2827,7 +3122,7 @@ class PASAPIClient:
                 'X-Siemens-Ebs-User-Country-Code': 'US',
                 'X-Siemens-Ebs-User-Currency': 'USD'
             }
-            
+
             request_body = {
                 "ftsParameters": {
                     "match": {
@@ -2838,7 +3133,7 @@ class PASAPIClient:
                     }
                 }
             }
-            
+
             url = f"{self.pas_url}{endpoint}"
             response = requests.post(
                 url,
@@ -2846,7 +3141,7 @@ class PASAPIClient:
                 json=request_body,
                 timeout=60
             )
-            
+
             if response.status_code == 401:
                 # Token expired, retry once
                 self.access_token = None
@@ -2859,64 +3154,198 @@ class PASAPIClient:
                     json=request_body,
                     timeout=60
                 )
-            
+
             response.raise_for_status()
             result = response.json()
-            
+
             if not result.get('success', False):
                 error = result.get('error', {})
                 error_msg = error.get('message', 'Unknown error')
-                return {'error': error_msg}, 'error'
-            
-            # Process results
+                return {'error': error_msg}
+
+            # Return results list
             if result.get('result') and result['result'].get('results'):
-                parts = result['result']['results']
-                total_count = result['result'].get('totalCount', len(parts))
-                
-                # Filter matches
-                exact_matches = []
-                partial_matches = []
-                
+                return {
+                    'results': result['result']['results'],
+                    'totalCount': result['result'].get('totalCount', 0)
+                }
+            else:
+                return {'results': []}
+
+        except Exception as e:
+            return {'error': str(e)}
+
+    def _apply_searchandassign_matching(self, edm_pn, edm_mfg, parts):
+        """
+        Apply the exact SearchAndAssign matching algorithm from Java code
+
+        Algorithm steps (matching SearchAndAssignApp.java):
+        1. Search by PartNumber + ManufacturerName
+           a. Exact match on both
+           b. Partial match on ManufacturerName (contains)
+           c. Alphanumeric-only match
+           d. Leading zero suppression match
+        2. If no match and manufacturer is empty/Unknown, search by PartNumber only
+        """
+        import re
+
+        matches = []
+
+        # Step 1: Search with both PartNumber and ManufacturerName
+        if edm_mfg and edm_mfg not in ['', 'Unknown']:
+            # Step 1a: Exact match on both PartNumber and ManufacturerName
+            for part_data in parts:
+                part = part_data.get('searchProviderPart', {})
+                pas_pn = part.get('manufacturerPartNumber', '')
+                pas_mfg = part.get('manufacturerName', '')
+
+                if pas_pn == edm_pn and pas_mfg == edm_mfg:
+                    matches.append(part_data)
+
+            if len(matches) > 1:
+                return self._format_match_result(matches, 'Multiple')
+            elif len(matches) == 1:
+                return self._format_match_result(matches, 'Found')
+
+            # Step 1b: Partial match on ManufacturerName (PN exact, MFG contains)
+            matches.clear()
+            for part_data in parts:
+                part = part_data.get('searchProviderPart', {})
+                pas_pn = part.get('manufacturerPartNumber', '')
+                pas_mfg = part.get('manufacturerName', '')
+
+                if pas_pn == edm_pn and edm_mfg in pas_mfg:
+                    matches.append(part_data)
+
+            if len(matches) > 1:
+                return self._format_match_result(matches, 'Multiple')
+            elif len(matches) == 1:
+                return self._format_match_result(matches, 'Found')
+
+            # Step 1c: Alphanumeric-only match (strip special characters)
+            matches.clear()
+            pattern = re.compile(r'[^A-Za-z0-9]')
+            edm_pn_alpha = pattern.sub('', edm_pn)
+
+            for part_data in parts:
+                part = part_data.get('searchProviderPart', {})
+                pas_pn = part.get('manufacturerPartNumber', '')
+                pas_pn_alpha = pattern.sub('', pas_pn)
+
+                if pas_pn_alpha == edm_pn_alpha:
+                    matches.append(part_data)
+
+            if len(matches) == 0:
+                # Step 1d: Leading zero suppression
+                edm_pn_no_zeros = edm_pn_alpha.lstrip('0')
+
                 for part_data in parts:
                     part = part_data.get('searchProviderPart', {})
-                    found_mpn = part.get('manufacturerPartNumber', '')
-                    found_mfg = part.get('manufacturerName', '')
-                    
-                    if found_mpn.upper() == manufacturer_pn.upper():
-                        if manufacturer.upper() in found_mfg.upper() or found_mfg.upper() in manufacturer.upper():
-                            exact_matches.append(f"{found_mpn}@{found_mfg}")
-                        else:
-                            partial_matches.append(f"{found_mpn}@{found_mfg}")
-                    else:
-                        partial_matches.append(f"{found_mpn}@{found_mfg}")
-                
-                if exact_matches:
-                    return {'matches': exact_matches[:10]}, 'exact'
-                elif partial_matches:
-                    return {'matches': partial_matches[:10]}, 'partial'
-                else:
-                    return {'matches': []}, 'no_match'
+                    pas_pn = part.get('manufacturerPartNumber', '')
+                    pas_pn_alpha = pattern.sub('', pas_pn)
+                    pas_pn_no_zeros = pas_pn_alpha.lstrip('0')
+
+                    if pas_pn_no_zeros == edm_pn_no_zeros:
+                        matches.append(part_data)
+
+                if len(matches) == 1:
+                    return self._format_match_result(matches, 'Found')
+                elif len(matches) > 1:
+                    # Multiple matches - take first one
+                    return self._format_match_result([matches[0]], 'Found')
             else:
-                return {'matches': []}, 'no_match'
-                
-        except Exception as e:
-            return {'error': str(e)}, 'error'
+                if len(matches) == 1:
+                    return self._format_match_result(matches, 'Found')
+                else:
+                    # Multiple matches - take first one
+                    return self._format_match_result([matches[0]], 'Found')
+
+        # Step 2: Search by PartNumber only (if manufacturer empty/Unknown or no matches found)
+        if not edm_mfg or edm_mfg in ['', 'Unknown'] or len(matches) == 0:
+            matches.clear()
+
+            # Exact PartNumber match
+            for part_data in parts:
+                part = part_data.get('searchProviderPart', {})
+                pas_pn = part.get('manufacturerPartNumber', '')
+
+                if pas_pn == edm_pn:
+                    matches.append(part_data)
+
+            if len(matches) == 0:
+                # Try alphanumeric-only
+                pattern = re.compile(r'[^A-Za-z0-9]')
+                edm_pn_alpha = pattern.sub('', edm_pn)
+
+                for part_data in parts:
+                    part = part_data.get('searchProviderPart', {})
+                    pas_pn = part.get('manufacturerPartNumber', '')
+                    pas_pn_alpha = pattern.sub('', pas_pn)
+
+                    if pas_pn_alpha == edm_pn_alpha:
+                        matches.append(part_data)
+
+                if len(matches) == 0:
+                    # Try leading zero suppression
+                    edm_pn_no_zeros = edm_pn_alpha.lstrip('0')
+
+                    for part_data in parts:
+                        part = part_data.get('searchProviderPart', {})
+                        pas_pn = part.get('manufacturerPartNumber', '')
+                        pas_pn_alpha = pattern.sub('', pas_pn)
+                        pas_pn_no_zeros = pas_pn_alpha.lstrip('0')
+
+                        if pas_pn_no_zeros == edm_pn_no_zeros:
+                            matches.append(part_data)
+
+                    if len(matches) == 0:
+                        # Partial matches - return all as Multiple
+                        return self._format_match_result(parts, 'Multiple')
+                    elif len(matches) == 1:
+                        return self._format_match_result(matches, 'Need user review')
+                    else:
+                        # Multiple matches - take first one
+                        return self._format_match_result([matches[0]], 'Found')
+                else:
+                    if len(matches) == 1:
+                        return self._format_match_result(matches, 'Need user review')
+                    else:
+                        # Multiple matches - take first one
+                        return self._format_match_result([matches[0]], 'Found')
+            else:
+                if len(matches) == 1:
+                    return self._format_match_result(matches, 'Need user review')
+                else:
+                    return self._format_match_result(matches, 'Multiple')
+
+        # No matches found
+        return {'matches': []}, 'None'
+
+    def _format_match_result(self, part_data_list, match_type):
+        """Format the match result in a consistent way"""
+        matches = []
+        for part_data in part_data_list:
+            part = part_data.get('searchProviderPart', {})
+            mpn = part.get('manufacturerPartNumber', '')
+            mfg = part.get('manufacturerName', '')
+            matches.append(f"{mpn}@{mfg}")
+
+        return {'matches': matches[:10]}, match_type
 
 
 class SupplyFrameReviewPage(QWizardPage):
-    """Step 4: Review SupplyFrame matches and normalize manufacturers"""
+    """Step 5: Review PAS Matches and Normalize Manufacturers"""
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Step 4: SupplyFrame Review & Manufacturer Normalization")
-        self.setSubTitle("Review partial matches, normalize manufacturers, and regenerate XML files")
+        self.setTitle("Step 5: Review Matches & Manufacturer Normalization")
+        self.setSubTitle("Review match results (Found/Multiple/Need Review/None) and normalize manufacturer names")
 
-        self.csv_loaded = False
-        self.search_assign_data = []
+        self.search_results = []
         self.parts_needing_review = []
         self.manufacturer_normalizations = {}
         self.normalization_reasoning = {}  # Store fuzzy/AI reasoning for each normalization
-        self.combined_data = []
+        self.original_data = []  # Store original data for comparison
         self.api_key = None
 
         # Main layout with vertical splitter for resizable sections
@@ -2926,11 +3355,11 @@ class SupplyFrameReviewPage(QWizardPage):
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.setChildrenCollapsible(True)  # Allow sections to be collapsed via splitter
 
-        # Section 1: Load CSV (expanded by default)
-        self.csv_group = self.create_csv_section_widget()
-        main_splitter.addWidget(self.csv_group)
+        # Section 1: Match Results Summary (auto-loaded from PASSearchPage)
+        self.summary_group = self.create_summary_section_widget()
+        main_splitter.addWidget(self.summary_group)
 
-        # Section 2: Review Partial Matches
+        # Section 2: Review Matches by Category
         self.review_group = self.create_review_section_widget()
         main_splitter.addWidget(self.review_group)
 
@@ -2938,27 +3367,84 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_group = self.create_normalization_section_widget()
         main_splitter.addWidget(self.norm_group)
 
-        # Section 4: Comparison View
-        self.comp_group = self.create_comparison_section_widget()
-        main_splitter.addWidget(self.comp_group)
-
-        # Section 5: Final Actions (always visible)
-        actions_widget = self.create_actions_section_widget()
-        main_splitter.addWidget(actions_widget)
-
         # Set initial sizes for splitter sections (in pixels)
-        # CSV: 120, Review: 400, Norm: 300, Comparison: 400, Actions: 60
-        main_splitter.setSizes([120, 400, 300, 400, 60])
+        # Summary: 150, Review: 500, Normalization: 400
+        main_splitter.setSizes([150, 500, 400])
 
         # Set stretch factors (higher = takes more space when expanding)
-        main_splitter.setStretchFactor(0, 0)  # CSV - minimal
-        main_splitter.setStretchFactor(1, 2)  # Review - large
-        main_splitter.setStretchFactor(2, 1)  # Normalization - medium
-        main_splitter.setStretchFactor(3, 2)  # Comparison - large
-        main_splitter.setStretchFactor(4, 0)  # Actions - minimal
+        main_splitter.setStretchFactor(0, 0)  # Summary - minimal
+        main_splitter.setStretchFactor(1, 3)  # Review - largest
+        main_splitter.setStretchFactor(2, 2)  # Normalization - medium
 
         page_layout.addWidget(main_splitter)
         self.setLayout(page_layout)
+
+    def initializePage(self):
+        """Initialize by loading data from PASSearchPage"""
+        pas_search_page = self.wizard().page(3)  # PASSearchPage is page 3
+
+        # Get search results from PASSearchPage
+        if hasattr(pas_search_page, 'search_results') and pas_search_page.search_results:
+            self.search_results = pas_search_page.search_results
+
+            # Store original data for comparison later
+            if hasattr(pas_search_page, 'combined_data'):
+                self.original_data = pas_search_page.combined_data.copy()
+
+            # Load and display the results
+            self.load_search_results()
+        else:
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No search results available.\n\n"
+                "Please go back to Step 4 and complete the PAS search."
+            )
+
+    def load_search_results(self):
+        """Process and display search results"""
+        # Categorize results by match status
+        found = [r for r in self.search_results if r['MatchStatus'] == 'Found']
+        multiple = [r for r in self.search_results if r['MatchStatus'] == 'Multiple']
+        need_review = [r for r in self.search_results if r['MatchStatus'] == 'Need user review']
+        none = [r for r in self.search_results if r['MatchStatus'] == 'None']
+        errors = [r for r in self.search_results if r['MatchStatus'] == 'Error']
+
+        # Update summary
+        self.update_summary_display(found, multiple, need_review, none, errors)
+
+        # Populate review tables
+        self.populate_review_tables(found, multiple, need_review, none, errors)
+
+        # Identify parts needing normalization
+        self.identify_normalization_candidates()
+
+    def create_summary_section_widget(self):
+        """Section 1: Match Results Summary"""
+        summary_group = QGroupBox("📊 Match Results Summary")
+        summary_layout = QVBoxLayout()
+
+        self.summary_label = QLabel("Loading results...")
+        self.summary_label.setWordWrap(True)
+        summary_layout.addWidget(self.summary_label)
+
+        summary_group.setLayout(summary_layout)
+        return summary_group
+
+    def update_summary_display(self, found, multiple, need_review, none, errors):
+        """Update the summary display with match counts"""
+        total = len(self.search_results)
+        summary_text = f"""
+<b>Total Parts:</b> {total}<br>
+<span style='color: green;'><b>✓ Found:</b> {len(found)}</span> ({len(found)/total*100:.1f}%)<br>
+<span style='color: orange;'><b>⚠ Multiple:</b> {len(multiple)}</span> ({len(multiple)/total*100:.1f}%)<br>
+<span style='color: blue;'><b>👁 Need Review:</b> {len(need_review)}</span> ({len(need_review)/total*100:.1f}%)<br>
+<span style='color: gray;'><b>✗ None:</b> {len(none)}</span> ({len(none)/total*100:.1f}%)
+"""
+        if errors:
+            summary_text += f"<br><span style='color: red;'><b>❌ Errors:</b> {len(errors)}</span>"
+
+        self.summary_label.setText(summary_text)
 
     def create_csv_section_widget(self):
         """Section 1: Load SearchAndAssign CSV"""
@@ -2991,7 +3477,70 @@ class SupplyFrameReviewPage(QWizardPage):
         csv_group.setLayout(csv_layout)
         return csv_group
 
+    def populate_review_tables(self, found, multiple, need_review, none, errors):
+        """Populate the review tables with categorized results"""
+        # This will be called from load_search_results()
+        # Placeholder for now - we'll implement the table population
+        pass
+
+    def identify_normalization_candidates(self):
+        """Identify manufacturers that need normalization"""
+        # Placeholder - will detect variations in manufacturer names
+        pass
+
     def create_review_section_widget(self):
+        """Section 2: Review Matches by Category"""
+        review_group = QGroupBox("🔍 Review Match Results")
+        review_layout = QVBoxLayout()
+
+        # Create tab widget for different match categories
+        self.review_tabs = QTabWidget()
+
+        # Tab 1: Found (exact matches)
+        self.found_table = self.create_results_table()
+        self.review_tabs.addTab(self.found_table, "✓ Found")
+
+        # Tab 2: Multiple matches
+        self.multiple_table = self.create_results_table()
+        self.review_tabs.addTab(self.multiple_table, "⚠ Multiple")
+
+        # Tab 3: Need user review
+        self.need_review_table = self.create_results_table()
+        self.review_tabs.addTab(self.need_review_table, "👁 Need Review")
+
+        # Tab 4: None (no matches)
+        self.none_table = self.create_results_table()
+        self.review_tabs.addTab(self.none_table, "✗ None")
+
+        # Tab 5: Errors (optional - only if there are errors)
+        self.errors_table = self.create_results_table()
+        self.review_tabs.addTab(self.errors_table, "❌ Errors")
+
+        review_layout.addWidget(self.review_tabs)
+        review_group.setLayout(review_layout)
+        return review_group
+
+    def create_results_table(self):
+        """Create a table widget for displaying match results"""
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Part Number", "Manufacturer", "Match Status", "Match Details"])
+
+        # Set column resize modes
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Manufacturer
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Match Status
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Match Details
+
+        table.setSelectionBehavior(QTableWidget.SelectRows)
+        table.setSelectionMode(QTableWidget.SingleSelection)
+        table.setAlternatingRowColors(True)
+        table.setSortingEnabled(True)  # Enable sorting
+
+        return table
+
+    def create_review_section_widget_OLD(self):
         """Section 2: Review Partial Matches"""
         review_group = QGroupBox("2. Review Partial Matches")
         review_layout = QHBoxLayout()
@@ -4057,7 +4606,7 @@ class SupplyFrameReviewPage(QWizardPage):
         try:
             # Get the combined data from XMLGenerationPage (Step 3)
             prev_page_3 = self.wizard().page(3)  # XMLGenerationPage
-            if not hasattr(prev_page_3, 'combined_data') or not prev_page_3.combined_data:
+            if not hasattr(prev_page_3, 'combined_data') or prev_page_3.combined_data is None or prev_page_3.combined_data.empty:
                 QMessageBox.warning(self, "No Data",
                                   "No combined data available from Step 3.\n"
                                   "Please complete Step 3 first.")
@@ -4450,6 +4999,230 @@ class SupplyFrameReviewPage(QWizardPage):
                               f"You can continue editing the normalizations as needed.")
 
 
+class ComparisonPage(QWizardPage):
+    """Step 6: Old vs New Comparison - Show changes made"""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Step 6: Review Changes")
+        self.setSubTitle("Review all changes made to manufacturer names and match selections")
+
+        layout = QVBoxLayout()
+
+        # Summary section
+        summary_group = QGroupBox("📊 Changes Summary")
+        summary_layout = QVBoxLayout()
+
+        self.summary_label = QLabel("No changes to display")
+        self.summary_label.setWordWrap(True)
+        summary_layout.addWidget(self.summary_label)
+
+        summary_group.setLayout(summary_layout)
+        layout.addWidget(summary_group)
+
+        # Comparison table
+        comparison_group = QGroupBox("🔄 Old vs New Comparison")
+        comparison_layout = QVBoxLayout()
+
+        self.comparison_table = QTableWidget()
+        self.comparison_table.setColumnCount(5)
+        self.comparison_table.setHorizontalHeaderLabels([
+            "Part Number",
+            "Original MFG",
+            "New MFG",
+            "Change Type",
+            "Notes"
+        ])
+
+        # Set column resize modes
+        header = self.comparison_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Original MFG
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # New MFG
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Change Type
+        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Notes
+
+        self.comparison_table.setAlternatingRowColors(True)
+        self.comparison_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.comparison_table.setSortingEnabled(True)  # Enable sorting
+
+        comparison_layout.addWidget(self.comparison_table)
+        comparison_group.setLayout(comparison_layout)
+        layout.addWidget(comparison_group, stretch=1)
+
+        # Export options
+        export_group = QGroupBox("💾 Export Options")
+        export_layout = QVBoxLayout()
+
+        export_btn_layout = QHBoxLayout()
+
+        self.export_csv_btn = QPushButton("Export to CSV")
+        self.export_csv_btn.clicked.connect(self.export_to_csv)
+        export_btn_layout.addWidget(self.export_csv_btn)
+
+        self.export_excel_btn = QPushButton("Export to Excel")
+        self.export_excel_btn.clicked.connect(self.export_to_excel)
+        export_btn_layout.addWidget(self.export_excel_btn)
+
+        export_btn_layout.addStretch()
+        export_layout.addLayout(export_btn_layout)
+
+        self.export_status = QLabel("")
+        export_layout.addWidget(self.export_status)
+
+        export_group.setLayout(export_layout)
+        layout.addWidget(export_group)
+
+        self.setLayout(layout)
+
+        # Store data
+        self.original_data = []
+        self.normalized_data = []
+        self.changes = []
+
+    def initializePage(self):
+        """Initialize by loading data from SupplyFrameReviewPage"""
+        review_page = self.wizard().page(4)  # SupplyFrameReviewPage is page 4
+
+        # Get original and normalized data
+        if hasattr(review_page, 'original_data'):
+            self.original_data = review_page.original_data
+
+        if hasattr(review_page, 'manufacturer_normalizations'):
+            self.normalizations = review_page.manufacturer_normalizations
+        else:
+            self.normalizations = {}
+
+        # Build comparison
+        self.build_comparison()
+
+    def build_comparison(self):
+        """Build the comparison between original and normalized data"""
+        self.changes = []
+
+        # Compare original data with normalizations
+        for orig_item in self.original_data:
+            orig_mfg = orig_item.get('MFG', '')
+            part_num = orig_item.get('MFG_PN', '')
+
+            # Check if this manufacturer was normalized
+            if orig_mfg in self.normalizations:
+                new_mfg = self.normalizations[orig_mfg]
+                if new_mfg != orig_mfg:
+                    self.changes.append({
+                        'part_number': part_num,
+                        'original_mfg': orig_mfg,
+                        'new_mfg': new_mfg,
+                        'change_type': 'Normalized',
+                        'notes': f'Manufacturer name standardized'
+                    })
+
+        # Update display
+        self.update_comparison_display()
+
+    def update_comparison_display(self):
+        """Update the comparison table with changes"""
+        # Update summary
+        total_parts = len(self.original_data)
+        changed_parts = len(self.changes)
+
+        if changed_parts > 0:
+            summary_text = f"""
+<b>Total Parts:</b> {total_parts}<br>
+<b>Parts Changed:</b> {changed_parts} ({changed_parts/total_parts*100:.1f}%)<br>
+<b>Parts Unchanged:</b> {total_parts - changed_parts} ({(total_parts-changed_parts)/total_parts*100:.1f}%)
+"""
+            self.summary_label.setText(summary_text)
+        else:
+            self.summary_label.setText("✓ No changes were made to the data")
+
+        # Populate comparison table
+        self.comparison_table.setRowCount(len(self.changes))
+
+        for row, change in enumerate(self.changes):
+            # Part Number
+            self.comparison_table.setItem(row, 0, QTableWidgetItem(change['part_number']))
+
+            # Original MFG
+            orig_item = QTableWidgetItem(change['original_mfg'])
+            orig_item.setBackground(QColor(255, 230, 230))  # Light red
+            self.comparison_table.setItem(row, 1, orig_item)
+
+            # New MFG
+            new_item = QTableWidgetItem(change['new_mfg'])
+            new_item.setBackground(QColor(230, 255, 230))  # Light green
+            self.comparison_table.setItem(row, 2, new_item)
+
+            # Change Type
+            self.comparison_table.setItem(row, 3, QTableWidgetItem(change['change_type']))
+
+            # Notes
+            self.comparison_table.setItem(row, 4, QTableWidgetItem(change['notes']))
+
+    def export_to_csv(self):
+        """Export comparison to CSV"""
+        try:
+            start_page = self.wizard().page(0)
+            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
+
+            if not output_folder:
+                QMessageBox.warning(self, "Error", "Output folder not configured")
+                return
+
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_path = Path(output_folder) / f"Comparison_{timestamp}.csv"
+
+            import csv
+            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Part Number', 'Original MFG', 'New MFG', 'Change Type', 'Notes'])
+
+                for change in self.changes:
+                    writer.writerow([
+                        change['part_number'],
+                        change['original_mfg'],
+                        change['new_mfg'],
+                        change['change_type'],
+                        change['notes']
+                    ])
+
+            self.export_status.setText(f"✓ Exported to: {csv_path.name}")
+            self.export_status.setStyleSheet("color: green;")
+
+        except Exception as e:
+            self.export_status.setText(f"✗ Export failed: {str(e)}")
+            self.export_status.setStyleSheet("color: red;")
+
+    def export_to_excel(self):
+        """Export comparison to Excel"""
+        try:
+            start_page = self.wizard().page(0)
+            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
+
+            if not output_folder:
+                QMessageBox.warning(self, "Error", "Output folder not configured")
+                return
+
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            excel_path = Path(output_folder) / f"Comparison_{timestamp}.xlsx"
+
+            # Create DataFrame
+            df = pd.DataFrame(self.changes)
+            df.columns = ['Part Number', 'Original MFG', 'New MFG', 'Change Type', 'Notes']
+
+            # Write to Excel
+            df.to_excel(excel_path, index=False, engine='xlsxwriter')
+
+            self.export_status.setText(f"✓ Exported to: {excel_path.name}")
+            self.export_status.setStyleSheet("color: green;")
+
+        except Exception as e:
+            self.export_status.setText(f"✗ Export failed: {str(e)}")
+            self.export_status.setStyleSheet("color: red;")
+
+
 class EDMWizard(QWizard):
     """Main wizard window"""
 
@@ -4467,18 +5240,20 @@ class EDMWizard(QWizard):
             Qt.WindowMaximizeButtonHint
         )
 
-        # Add pages
-        self.start_page = StartPage()
-        self.data_source_page = DataSourcePage()
-        self.column_mapping_page = ColumnMappingPage()
-        self.pas_search_page = PASSearchPage()  # Replaced XMLGenerationPage
-        self.supplyframe_review_page = SupplyFrameReviewPage()
+        # Add pages - New 6-page flow
+        self.start_page = StartPage()                          # Step 1: API credentials & output folder
+        self.data_source_page = DataSourcePage()               # Step 2: Access DB export or Excel selection
+        self.column_mapping_page = ColumnMappingPage()         # Step 3: Column mapping & combine
+        self.pas_search_page = PASSearchPage()                 # Step 4: PAS API search
+        self.review_page = SupplyFrameReviewPage()             # Step 5: Review matches & normalization
+        self.comparison_page = ComparisonPage()                # Step 6: Old vs New comparison
 
-        self.addPage(self.start_page)
-        self.addPage(self.data_source_page)
-        self.addPage(self.column_mapping_page)
-        self.addPage(self.pas_search_page)  # Step 3: PAS Search
-        self.addPage(self.supplyframe_review_page)
+        self.addPage(self.start_page)              # Page 0
+        self.addPage(self.data_source_page)        # Page 1
+        self.addPage(self.column_mapping_page)     # Page 2
+        self.addPage(self.pas_search_page)         # Page 3
+        self.addPage(self.review_page)             # Page 4
+        self.addPage(self.comparison_page)         # Page 5
 
         # Customize buttons
         self.setButtonText(QWizard.FinishButton, "Finish")

@@ -2066,8 +2066,8 @@ class PASSearchPage(QWizardPage):
             parts_list = self.combined_data.to_dict('records')
 
             # Start search thread with parallel execution
-            # max_workers=10 means 10 concurrent PAS API calls (adjustable for performance)
-            self.search_thread = PASSearchThread(pas_client, parts_list, max_workers=10)
+            # max_workers=15 means 15 concurrent PAS API calls (adjustable for performance)
+            self.search_thread = PASSearchThread(pas_client, parts_list, max_workers=15)
             self.search_thread.progress.connect(self.on_search_progress)
             self.search_thread.result_ready.connect(self.on_result_ready)  # Real-time display
             self.search_thread.finished.connect(self.on_search_finished)
@@ -3123,10 +3123,17 @@ class PASAPIClient:
                 'X-Siemens-Ebs-User-Currency': 'USD'
             }
 
+            # Combine manufacturer and part number for more accurate search
+            # This matches how Java SearchAndAssign searches with both parameters
+            if manufacturer and manufacturer.strip():
+                search_term = f"{manufacturer_pn} {manufacturer}"
+            else:
+                search_term = manufacturer_pn
+
             request_body = {
                 "ftsParameters": {
                     "match": {
-                        "term": manufacturer_pn
+                        "term": search_term
                     },
                     "paging": {
                         "requestedPageSize": 20
@@ -3387,9 +3394,15 @@ class SupplyFrameReviewPage(QWizardPage):
         if hasattr(pas_search_page, 'search_results') and pas_search_page.search_results:
             self.search_results = pas_search_page.search_results
 
-            # Store original data for comparison later
-            if hasattr(pas_search_page, 'combined_data'):
-                self.original_data = pas_search_page.combined_data.copy()
+            # Store original data for comparison later (convert DataFrame to list of dicts)
+            if hasattr(pas_search_page, 'combined_data') and pas_search_page.combined_data is not None:
+                if not pas_search_page.combined_data.empty:
+                    # Convert DataFrame to list of dictionaries for easier processing
+                    self.original_data = pas_search_page.combined_data.to_dict('records')
+                else:
+                    self.original_data = []
+            else:
+                self.original_data = []
 
             # Load and display the results
             self.load_search_results()
@@ -5100,8 +5113,19 @@ class ComparisonPage(QWizardPage):
         """Build the comparison between original and normalized data"""
         self.changes = []
 
+        # Ensure original_data is a list of dictionaries
+        if not hasattr(self, 'original_data') or self.original_data is None:
+            self.original_data = []
+
+        # If original_data is a DataFrame, convert to list of dicts
+        if hasattr(self.original_data, 'to_dict'):
+            self.original_data = self.original_data.to_dict('records')
+
         # Compare original data with normalizations
         for orig_item in self.original_data:
+            if not isinstance(orig_item, dict):
+                continue  # Skip non-dict items
+
             orig_mfg = orig_item.get('MFG', '')
             part_num = orig_item.get('MFG_PN', '')
 

@@ -8,7 +8,11 @@
       "WebSearch",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(taskkill:*)",
+      "Bash(nul)",
+      "Bash(find:*)",
+      "Bash(claude doctor)"
     ],
     "deny": [],
     "ask": []

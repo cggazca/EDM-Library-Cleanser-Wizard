@@ -823,64 +823,70 @@ class SheetDetectionWorker(QThread):
     finished = pyqtSignal(str, dict)  # sheet_name, mapping
     error = pyqtSignal(str, str)  # sheet_name, error_msg
 
-    def __init__(self, api_key, sheet_name, dataframe, model="claude-sonnet-4-5-20250929"):
+    def __init__(self, api_key, sheet_name, dataframe, model="claude-sonnet-4-5-20250929", max_retries=5):
         super().__init__()
         self.api_key = api_key
         self.sheet_name = sheet_name
         self.dataframe = dataframe
         self.model = model
+        self.max_retries = max_retries
 
     def run(self):
-        try:
-            client = Anthropic(api_key=self.api_key)
+        import time
+        retry_count = 0
+        base_delay = 10  # Start with 10 second delay
+        
+        while retry_count <= self.max_retries:
+            try:
+                client = Anthropic(api_key=self.api_key)
 
-            # Prepare column information
-            columns = self.dataframe.columns.tolist()
+                # Prepare column information
+                columns = self.dataframe.columns.tolist()
 
-            # Filter out rows that are mostly empty (less than 30% of columns have data)
-            min_fields_threshold = max(2, len(columns) * 0.3)
-            non_empty_counts = self.dataframe.notna().sum(axis=1)
-            df_filtered = self.dataframe[non_empty_counts >= min_fields_threshold].copy()
+                # Filter out rows that are mostly empty (less than 30% of columns have data)
+                min_fields_threshold = max(2, len(columns) * 0.3)
+                non_empty_counts = self.dataframe.notna().sum(axis=1)
+                df_filtered = self.dataframe[non_empty_counts >= min_fields_threshold].copy()
 
-            if len(df_filtered) == 0:
-                df_filtered = self.dataframe.copy()
+                if len(df_filtered) == 0:
+                    df_filtered = self.dataframe.copy()
 
-            # Increase sample size to 50 rows for better detection
-            sample_rows = []
+                # Increase sample size to 50 rows for better detection
+                sample_rows = []
 
-            # First 20 rows
-            if len(df_filtered) > 0:
-                sample_rows.extend(df_filtered.head(20).to_dict('records'))
+                # First 20 rows
+                if len(df_filtered) > 0:
+                    sample_rows.extend(df_filtered.head(20).to_dict('records'))
 
-            # Random sample from middle (if we have more than 40 rows)
-            if len(df_filtered) > 40:
-                middle_sample = df_filtered.iloc[20:-10].sample(n=min(20, len(df_filtered) - 30), random_state=42)
-                sample_rows.extend(middle_sample.to_dict('records'))
+                # Random sample from middle (if we have more than 40 rows)
+                if len(df_filtered) > 40:
+                    middle_sample = df_filtered.iloc[20:-10].sample(n=min(20, len(df_filtered) - 30), random_state=42)
+                    sample_rows.extend(middle_sample.to_dict('records'))
 
-            # Last 10 rows (if we have more than 30 rows total)
-            if len(df_filtered) > 30:
-                sample_rows.extend(df_filtered.tail(10).to_dict('records'))
+                # Last 10 rows (if we have more than 30 rows total)
+                if len(df_filtered) > 30:
+                    sample_rows.extend(df_filtered.tail(10).to_dict('records'))
 
-            # Get basic statistics
-            stats = {
-                'total_rows': len(self.dataframe),
-                'rows_with_data': len(df_filtered),
-                'non_empty_counts': {}
-            }
+                # Get basic statistics
+                stats = {
+                    'total_rows': len(self.dataframe),
+                    'rows_with_data': len(df_filtered),
+                    'non_empty_counts': {}
+                }
 
-            for col in columns:
-                non_empty = df_filtered[col].notna().sum()
-                stats['non_empty_counts'][col] = non_empty
+                for col in columns:
+                    non_empty = df_filtered[col].notna().sum()
+                    stats['non_empty_counts'][col] = non_empty
 
-            sheet_info = {
-                'sheet_name': self.sheet_name,
-                'columns': columns,
-                'sample_data': sample_rows,
-                'statistics': stats
-            }
+                sheet_info = {
+                    'sheet_name': self.sheet_name,
+                    'columns': columns,
+                    'sample_data': sample_rows,
+                    'statistics': stats
+                }
 
-            # Create prompt for Claude
-            prompt = f"""Analyze the following Excel sheet and its columns. Identify which columns correspond to:
+                # Create prompt for Claude
+                prompt = f"""Analyze the following Excel sheet and its columns. Identify which columns correspond to:
 1. MFG (Manufacturer name) - Look for manufacturer names like "Siemens", "ABB", "Schneider", etc.
 2. MFG_PN (Manufacturer Part Number) - The primary part number from the manufacturer
 3. MFG_PN_2 (Secondary/alternative Manufacturer Part Number) - An alternative or backup part number
@@ -917,31 +923,53 @@ Format:
 
 Only return the JSON, no other text."""
 
-            # Call Claude API with selected model
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}]
-            )
+                # Call Claude API with selected model
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=4096,
+                    messages=[{"role": "user", "content": prompt}]
+                )
 
-            # Parse response
-            response_text = response.content[0].text.strip()
-            if response_text.startswith('```'):
-                response_text = response_text.split('```')[1]
-                if response_text.startswith('json'):
-                    response_text = response_text[4:]
-                response_text = response_text.strip()
+                # Parse response
+                response_text = response.content[0].text.strip()
+                if response_text.startswith('```'):
+                    response_text = response_text.split('```')[1]
+                    if response_text.startswith('json'):
+                        response_text = response_text[4:]
+                    response_text = response_text.strip()
 
-            mapping = json.loads(response_text)
+                mapping = json.loads(response_text)
 
-            # Emit the mapping for this sheet
-            if self.sheet_name in mapping:
-                self.finished.emit(self.sheet_name, mapping[self.sheet_name])
-            else:
-                self.error.emit(self.sheet_name, "Sheet mapping not found in response")
+                # Emit the mapping for this sheet
+                if self.sheet_name in mapping:
+                    self.finished.emit(self.sheet_name, mapping[self.sheet_name])
+                else:
+                    self.error.emit(self.sheet_name, "Sheet mapping not found in response")
+                
+                # Success - exit retry loop
+                break
 
-        except Exception as e:
-            self.error.emit(self.sheet_name, str(e))
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a rate limit error (429)
+                is_rate_limit = '429' in error_str or 'rate_limit' in error_str.lower() or 'overloaded' in error_str.lower()
+                
+                if is_rate_limit and retry_count < self.max_retries:
+                    # Calculate exponential backoff delay
+                    delay = base_delay * (2 ** retry_count)  # 10s, 20s, 40s, 80s, 160s
+                    retry_count += 1
+                    
+                    # Sleep and retry
+                    time.sleep(delay)
+                    continue  # Retry the request
+                else:
+                    # Not a rate limit error, or max retries reached
+                    if retry_count >= self.max_retries:
+                        self.error.emit(self.sheet_name, f"Max retries ({self.max_retries}) exceeded. Last error: {error_str}")
+                    else:
+                        self.error.emit(self.sheet_name, error_str)
+                    break
 
 
 class AIDetectionThread(QThread):
@@ -980,10 +1008,10 @@ class AIDetectionThread(QThread):
                 self.workers.append(worker)
 
             # Start workers with staggered delays to avoid rate limiting
-            # Launch in small batches with delays between batches
+            # Conservative approach: process one at a time with longer delays
             import time
-            batch_size = 2  # Launch 2 workers at a time (reduced from 3)
-            delay_between_batches = 5.0  # 5 second delay between batches (increased from 2)
+            batch_size = 1  # Process one sheet at a time to avoid rate limits
+            delay_between_requests = 12.0  # 12 second delay between requests (safe for most API tiers)
 
             for i in range(0, len(self.workers), batch_size):
                 batch = self.workers[i:i + batch_size]
@@ -991,20 +1019,22 @@ class AIDetectionThread(QThread):
                 # Start workers in this batch
                 for worker in batch:
                     worker.start()
-                    time.sleep(1.0)  # 1 second delay between individual workers in a batch (increased from 0.5)
 
-                # If not the last batch, wait before starting next batch
+                # Wait for this batch to complete before starting next
+                for worker in batch:
+                    worker.wait()
+
+                # If not the last batch, wait before starting next request
                 if i + batch_size < len(self.workers):
                     self.progress.emit(
-                        f"⏳ Rate limit protection: waiting {delay_between_batches}s before next batch...",
+                        f"⏳ Rate limit protection: waiting {delay_between_requests}s before next request...",
                         self.completed_count,
                         total_sheets
                     )
-                    time.sleep(delay_between_batches)
+                    time.sleep(delay_between_requests)
 
-            # Wait for all workers to complete
-            for worker in self.workers:
-                worker.wait()
+            # All workers have already completed (waited in the loop above)
+            # No need to wait again
 
             # Check if we got at least some results
             if len(self.all_mappings) > 0:
@@ -3933,9 +3963,65 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def populate_review_tables(self, found, multiple, need_review, none, errors):
         """Populate the review tables with categorized results"""
-        # This will be called from load_search_results()
-        # Placeholder for now - we'll implement the table population
-        pass
+        # Populate each table with its respective category
+        self._populate_table(self.found_table, found)
+        self._populate_table(self.multiple_table, multiple)
+        self._populate_table(self.need_review_table, need_review)
+        self._populate_table(self.none_table, none)
+        self._populate_table(self.errors_table, errors)
+        
+        # Update tab labels with counts
+        self.review_tabs.setTabText(0, f"✓ Found ({len(found)})")
+        self.review_tabs.setTabText(1, f"⚠ Multiple ({len(multiple)})")
+        self.review_tabs.setTabText(2, f"👁 Need Review ({len(need_review)})")
+        self.review_tabs.setTabText(3, f"✗ None ({len(none)})")
+        self.review_tabs.setTabText(4, f"❌ Errors ({len(errors)})")
+    
+    def _populate_table(self, table, results):
+        """Helper method to populate a single table with results"""
+        # Temporarily disable sorting for faster population
+        table.setSortingEnabled(False)
+        
+        table.setRowCount(len(results))
+        
+        for row_idx, result in enumerate(results):
+            # Column 0: Part Number
+            part_number = str(result.get('PartNumber', ''))
+            table.setItem(row_idx, 0, QTableWidgetItem(part_number))
+            
+            # Column 1: Manufacturer
+            manufacturer = str(result.get('ManufacturerName', ''))
+            table.setItem(row_idx, 1, QTableWidgetItem(manufacturer))
+            
+            # Column 2: Match Status
+            status = result.get('MatchStatus', '')
+            status_item = QTableWidgetItem(status)
+            # Apply color coding based on status
+            if status == 'Found':
+                status_item.setBackground(QColor(230, 255, 230))  # Light green
+            elif status == 'Multiple':
+                status_item.setBackground(QColor(255, 240, 200))  # Light orange
+            elif status == 'Need user review':
+                status_item.setBackground(QColor(230, 240, 255))  # Light blue
+            elif status == 'None':
+                status_item.setBackground(QColor(240, 240, 240))  # Light gray
+            elif status == 'Error':
+                status_item.setBackground(QColor(255, 230, 230))  # Light red
+            table.setItem(row_idx, 2, status_item)
+            
+            # Column 3: Match Details
+            matches = result.get('matches', [])
+            if matches:
+                # Show first 3 matches
+                match_details = ', '.join(matches[:3])
+                if len(matches) > 3:
+                    match_details += f' ... (+{len(matches) - 3} more)'
+            else:
+                match_details = 'No matches found'
+            table.setItem(row_idx, 3, QTableWidgetItem(match_details))
+        
+        # Re-enable sorting
+        table.setSortingEnabled(True)
 
     def identify_normalization_candidates(self):
         """Identify manufacturers that need normalization"""

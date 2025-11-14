@@ -1008,7 +1008,25 @@ class AIDetectionThread(QThread):
 
             # Check if we got at least some results
             if len(self.all_mappings) > 0:
-                self.progress.emit("✅ Applying mappings...", total_sheets, total_sheets)
+                # Report summary including failures
+                success_count = len(self.all_mappings)
+                failed_count = self.error_count
+
+                if failed_count > 0:
+                    # Build error report
+                    failed_list = getattr(self, 'failed_sheets', [])
+                    error_details = "\n".join([f"  - {item['sheet']}: {item['error'][:80]}" for item in failed_list[:10]])
+                    if len(failed_list) > 10:
+                        error_details += f"\n  ... and {len(failed_list) - 10} more"
+
+                    self.progress.emit(
+                        f"⚠️ Completed with {failed_count} errors. Successfully mapped {success_count}/{total_sheets} sheets.",
+                        total_sheets,
+                        total_sheets
+                    )
+                else:
+                    self.progress.emit("✅ All sheets mapped successfully!", total_sheets, total_sheets)
+
                 self.finished.emit(self.all_mappings)
             else:
                 self.error.emit("No sheets were successfully analyzed. Please check your API key and try again.")
@@ -1031,6 +1049,12 @@ class AIDetectionThread(QThread):
         """Handle error from a single sheet detection"""
         self.error_count += 1
         self.completed_count += 1
+
+        # Track failed sheet
+        if not hasattr(self, 'failed_sheets'):
+            self.failed_sheets = []
+        self.failed_sheets.append({'sheet': sheet_name, 'error': error_msg})
+
         total = len(self.dataframes)
         self.progress.emit(
             f"⚠️ Error on sheet '{sheet_name}': {error_msg[:50]}... ({self.completed_count}/{total})",
@@ -1659,9 +1683,11 @@ class ColumnMappingPage(QWizardPage):
         is_checked = self.toggle_select_btn.isChecked()
 
         for row in range(self.mapping_table.rowCount()):
-            checkbox = self.mapping_table.cellWidget(row, 0)
-            if checkbox and isinstance(checkbox, QCheckBox):
-                checkbox.setChecked(is_checked)
+            include_widget = self.mapping_table.cellWidget(row, 0)
+            if include_widget:
+                checkbox = include_widget.findChild(QCheckBox)
+                if checkbox:
+                    checkbox.setChecked(is_checked)
 
         # Update button text based on state
         if is_checked:
@@ -1927,11 +1953,26 @@ class ColumnMappingPage(QWizardPage):
         ai_layout.removeWidget(self.ai_progress)
         self.ai_progress.deleteLater()
 
-        # Show legend
-        QMessageBox.information(
-            self,
-            "AI Detection Complete",
-            f"Column mappings detected for {len(all_mappings)} sheets using parallel AI analysis!\n\n"
+        # Show legend with failed sheets info
+        failed_sheets = getattr(self.ai_thread, 'failed_sheets', [])
+        success_count = len(all_mappings)
+        total_count = len(self.dataframes)
+
+        message = f"Column mappings detected for {success_count} of {total_count} sheets!\n\n"
+
+        if failed_sheets:
+            message += f"⚠️ {len(failed_sheets)} sheet(s) failed:\n"
+            for item in failed_sheets[:5]:
+                error_short = item['error'][:60]
+                if 'rate_limit' in error_short.lower() or '429' in error_short:
+                    message += f"  • {item['sheet']}: Rate limit error (429)\n"
+                else:
+                    message += f"  • {item['sheet']}: {error_short}...\n"
+            if len(failed_sheets) > 5:
+                message += f"  ... and {len(failed_sheets) - 5} more\n"
+            message += "\n"
+
+        message += (
             "Color coding:\n"
             "🟢 Green: High confidence (80%+)\n"
             "🟡 Yellow: Medium confidence (50-79%)\n"
@@ -1939,6 +1980,8 @@ class ColumnMappingPage(QWizardPage):
             "Please review and adjust as needed. "
             "Hover over dropdowns to see confidence scores."
         )
+
+        QMessageBox.information(self, "AI Detection Complete", message)
 
     def on_ai_error(self, error_msg):
         """Handle AI detection error"""

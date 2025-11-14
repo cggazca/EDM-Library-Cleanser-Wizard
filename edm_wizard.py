@@ -129,10 +129,10 @@ class StartPage(QWizardPage):
         model_layout = QHBoxLayout()
         model_layout.addWidget(QLabel("Claude Model:"))
         self.model_selector = QComboBox()
-        self.model_selector.addItem("Claude Sonnet 4.5 (Recommended)", "claude-sonnet-4-20250514")
-        self.model_selector.addItem("Claude Opus 4", "claude-opus-4-20250514")
-        self.model_selector.addItem("Claude Haiku 4 (Fastest)", "claude-haiku-4-20250514")
-        self.model_selector.setCurrentIndex(0)  # Default to Sonnet
+        self.model_selector.addItem("Claude Sonnet 4.5 (Latest, Recommended)", "claude-sonnet-4-5-20250929")
+        self.model_selector.addItem("Claude Haiku 4.5 (Fastest)", "claude-haiku-4-5-20251001")
+        self.model_selector.addItem("Claude Opus 4.1 (Most Capable)", "claude-opus-4-1-20250805")
+        self.model_selector.setCurrentIndex(0)  # Default to Sonnet 4.5
         model_layout.addWidget(self.model_selector)
         model_layout.addStretch()
         api_layout.addLayout(model_layout)
@@ -756,97 +756,140 @@ class AccessExportThread(QThread):
         return name[:31]
 
 
-class AIDetectionThread(QThread):
-    """Background thread for AI column detection"""
-    progress = pyqtSignal(str, int, int)  # message, current, total
-    finished = pyqtSignal(dict)  # mappings
+class SQLiteExportThread(QThread):
+    """Background thread for exporting SQLite database"""
+    progress = pyqtSignal(str)
+    finished = pyqtSignal(str, object)  # excel_path, dataframes_dict
     error = pyqtSignal(str)
 
-    def __init__(self, api_key, dataframes, model="claude-sonnet-4-20250514"):
+    def __init__(self, sqlite_file, output_file):
+        super().__init__()
+        self.sqlite_file = sqlite_file
+        self.output_file = output_file
+
+    def run(self):
+        try:
+            import sqlite3
+
+            self.progress.emit("Connecting to SQLite database...")
+
+            # Connect to SQLite database
+            conn = sqlite3.connect(self.sqlite_file)
+            cursor = conn.cursor()
+
+            # Get table names
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+            tables = [row[0] for row in cursor.fetchall()]
+
+            if not tables:
+                self.error.emit("No tables found in SQLite database.")
+                conn.close()
+                return
+
+            self.progress.emit(f"Found {len(tables)} tables. Exporting...")
+
+            # Export all tables
+            dataframes = {}
+            with pd.ExcelWriter(self.output_file, engine='xlsxwriter') as writer:
+                for idx, table in enumerate(tables, 1):
+                    self.progress.emit(f"Exporting table {idx}/{len(tables)}: {table}")
+
+                    # Read table data (SQLite uses double quotes for identifiers)
+                    df = pd.read_sql_query(f'SELECT * FROM "{table}"', conn)
+
+                    # Clean sheet name
+                    sheet_name = self.clean_sheet_name(table)
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    dataframes[sheet_name] = df
+
+            conn.close()
+            self.progress.emit("Export completed successfully!")
+            self.finished.emit(self.output_file, dataframes)
+
+        except Exception as e:
+            self.error.emit(f"Error exporting SQLite database: {str(e)}")
+
+    @staticmethod
+    def clean_sheet_name(name):
+        """Clean Excel sheet names"""
+        invalid_chars = ['\\', '/', '*', '?', ':', '[', ']']
+        for char in invalid_chars:
+            name = name.replace(char, '')
+        return name[:31]
+
+
+class SheetDetectionWorker(QThread):
+    """Worker thread for detecting columns in a single sheet"""
+    finished = pyqtSignal(str, dict)  # sheet_name, mapping
+    error = pyqtSignal(str, str)  # sheet_name, error_msg
+
+    def __init__(self, api_key, sheet_name, dataframe, model="claude-sonnet-4-5-20250929"):
         super().__init__()
         self.api_key = api_key
-        self.dataframes = dataframes
+        self.sheet_name = sheet_name
+        self.dataframe = dataframe
         self.model = model
 
     def run(self):
         try:
-            self.progress.emit("🔄 Preparing data...", 0, len(self.dataframes))
-
             client = Anthropic(api_key=self.api_key)
 
-            # Process sheets in chunks (3 sheets at a time to avoid token limits)
-            chunk_size = 3
-            sheet_names = list(self.dataframes.keys())
-            all_mappings = {}
+            # Prepare column information
+            columns = self.dataframe.columns.tolist()
 
-            for chunk_idx in range(0, len(sheet_names), chunk_size):
-                chunk_sheets = sheet_names[chunk_idx:chunk_idx + chunk_size]
+            # Filter out rows that are mostly empty (less than 30% of columns have data)
+            min_fields_threshold = max(2, len(columns) * 0.3)
+            non_empty_counts = self.dataframe.notna().sum(axis=1)
+            df_filtered = self.dataframe[non_empty_counts >= min_fields_threshold].copy()
 
-                self.progress.emit(
-                    f"🤖 Analyzing sheets {chunk_idx + 1}-{min(chunk_idx + chunk_size, len(sheet_names))} of {len(sheet_names)}...",
-                    chunk_idx,
-                    len(sheet_names)
-                )
+            if len(df_filtered) == 0:
+                df_filtered = self.dataframe.copy()
 
-                # Prepare column information for this chunk
-                sheets_info = []
-                for sheet_name in chunk_sheets:
-                    df = self.dataframes[sheet_name]
-                    columns = df.columns.tolist()
+            # Increase sample size to 50 rows for better detection
+            sample_rows = []
 
-                    # Filter out rows that are mostly empty (less than 30% of columns have data)
-                    min_fields_threshold = max(2, len(columns) * 0.3)
-                    non_empty_counts = df.notna().sum(axis=1)
-                    df_filtered = df[non_empty_counts >= min_fields_threshold].copy()
+            # First 20 rows
+            if len(df_filtered) > 0:
+                sample_rows.extend(df_filtered.head(20).to_dict('records'))
 
-                    if len(df_filtered) == 0:
-                        df_filtered = df.copy()
+            # Random sample from middle (if we have more than 40 rows)
+            if len(df_filtered) > 40:
+                middle_sample = df_filtered.iloc[20:-10].sample(n=min(20, len(df_filtered) - 30), random_state=42)
+                sample_rows.extend(middle_sample.to_dict('records'))
 
-                    # Increase sample size to 50 rows for better detection
-                    sample_rows = []
+            # Last 10 rows (if we have more than 30 rows total)
+            if len(df_filtered) > 30:
+                sample_rows.extend(df_filtered.tail(10).to_dict('records'))
 
-                    # First 20 rows
-                    if len(df_filtered) > 0:
-                        sample_rows.extend(df_filtered.head(20).to_dict('records'))
+            # Get basic statistics
+            stats = {
+                'total_rows': len(self.dataframe),
+                'rows_with_data': len(df_filtered),
+                'non_empty_counts': {}
+            }
 
-                    # Random sample from middle (if we have more than 40 rows)
-                    if len(df_filtered) > 40:
-                        middle_sample = df_filtered.iloc[20:-10].sample(n=min(20, len(df_filtered) - 30), random_state=42)
-                        sample_rows.extend(middle_sample.to_dict('records'))
+            for col in columns:
+                non_empty = df_filtered[col].notna().sum()
+                stats['non_empty_counts'][col] = non_empty
 
-                    # Last 10 rows (if we have more than 30 rows total)
-                    if len(df_filtered) > 30:
-                        sample_rows.extend(df_filtered.tail(10).to_dict('records'))
+            sheet_info = {
+                'sheet_name': self.sheet_name,
+                'columns': columns,
+                'sample_data': sample_rows,
+                'statistics': stats
+            }
 
-                    # Get basic statistics
-                    stats = {
-                        'total_rows': len(df),
-                        'rows_with_data': len(df_filtered),
-                        'non_empty_counts': {}
-                    }
-
-                    for col in columns:
-                        non_empty = df_filtered[col].notna().sum()
-                        stats['non_empty_counts'][col] = non_empty
-
-                    sheets_info.append({
-                        'sheet_name': sheet_name,
-                        'columns': columns,
-                        'sample_data': sample_rows,
-                        'statistics': stats
-                    })
-
-                # Create prompt for Claude
-                prompt = f"""Analyze the following Excel sheets and their columns. For each sheet, identify which columns correspond to:
+            # Create prompt for Claude
+            prompt = f"""Analyze the following Excel sheet and its columns. Identify which columns correspond to:
 1. MFG (Manufacturer name) - Look for manufacturer names like "Siemens", "ABB", "Schneider", etc.
 2. MFG_PN (Manufacturer Part Number) - The primary part number from the manufacturer
 3. MFG_PN_2 (Secondary/alternative Manufacturer Part Number) - An alternative or backup part number
 4. Part_Number (Internal part number) - Internal reference numbers
 5. Description (Part description) - Text description of the part
 
-Here are the sheets with their columns, sample data (up to 50 rows), and statistics:
+Here is the sheet with its columns, sample data (up to 50 rows), and statistics:
 
-{json.dumps(sheets_info, indent=2, default=str)}
+{json.dumps(sheet_info, indent=2, default=str)}
 
 Note: Rows with little to no information (less than 30% of columns filled) have been filtered out.
 
@@ -856,14 +899,14 @@ Analyze the sample data carefully. Look at:
 - Data completeness (statistics show total_rows, rows_with_data after filtering, and non_empty_counts per column)
 - Data consistency across the sample rows
 
-For each sheet, return a JSON object with the mapping and confidence scores (0-100). Base confidence on:
+Return a JSON object with the mapping and confidence scores (0-100). Base confidence on:
 - How well the column name matches the expected field
 - How consistent the data pattern is with the expected field type
 - How complete the data is (columns with mostly empty values should have lower confidence)
 
 Format:
 {{
-  "sheet_name": {{
+  "{self.sheet_name}": {{
     "MFG": {{"column": "column_name or null", "confidence": 0-100}},
     "MFG_PN": {{"column": "column_name or null", "confidence": 0-100}},
     "MFG_PN_2": {{"column": "column_name or null", "confidence": 0-100}},
@@ -874,33 +917,130 @@ Format:
 
 Only return the JSON, no other text."""
 
-                # Call Claude API with selected model
-                response = client.messages.create(
-                    model=self.model,
-                    max_tokens=4096,
-                    messages=[{"role": "user", "content": prompt}]
+            # Call Claude API with selected model
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            # Parse response
+            response_text = response.content[0].text.strip()
+            if response_text.startswith('```'):
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+
+            mapping = json.loads(response_text)
+
+            # Emit the mapping for this sheet
+            if self.sheet_name in mapping:
+                self.finished.emit(self.sheet_name, mapping[self.sheet_name])
+            else:
+                self.error.emit(self.sheet_name, "Sheet mapping not found in response")
+
+        except Exception as e:
+            self.error.emit(self.sheet_name, str(e))
+
+
+class AIDetectionThread(QThread):
+    """Coordinator thread for parallel AI column detection across all sheets"""
+    progress = pyqtSignal(str, int, int)  # message, current, total
+    finished = pyqtSignal(dict)  # mappings
+    error = pyqtSignal(str)
+
+    def __init__(self, api_key, dataframes, model="claude-sonnet-4-5-20250929"):
+        super().__init__()
+        self.api_key = api_key
+        self.dataframes = dataframes
+        self.model = model
+        self.all_mappings = {}
+        self.completed_count = 0
+        self.error_count = 0
+        self.workers = []
+
+    def run(self):
+        try:
+            sheet_names = list(self.dataframes.keys())
+            total_sheets = len(sheet_names)
+
+            self.progress.emit(f"🔄 Starting parallel analysis of {total_sheets} sheets...", 0, total_sheets)
+
+            # Create a worker for each sheet
+            for sheet_name in sheet_names:
+                worker = SheetDetectionWorker(
+                    self.api_key,
+                    sheet_name,
+                    self.dataframes[sheet_name],
+                    self.model
                 )
+                worker.finished.connect(self.on_sheet_completed)
+                worker.error.connect(self.on_sheet_error)
+                self.workers.append(worker)
 
-                # Parse response
-                response_text = response.content[0].text.strip()
-                if response_text.startswith('```'):
-                    response_text = response_text.split('```')[1]
-                    if response_text.startswith('json'):
-                        response_text = response_text[4:]
-                    response_text = response_text.strip()
+            # Start workers with staggered delays to avoid rate limiting
+            # Launch in small batches with delays between batches
+            import time
+            batch_size = 2  # Launch 2 workers at a time (reduced from 3)
+            delay_between_batches = 5.0  # 5 second delay between batches (increased from 2)
 
-                chunk_mappings = json.loads(response_text)
-                all_mappings.update(chunk_mappings)
+            for i in range(0, len(self.workers), batch_size):
+                batch = self.workers[i:i + batch_size]
 
-            self.progress.emit("✅ Applying mappings...", len(sheet_names), len(sheet_names))
-            self.finished.emit(all_mappings)
+                # Start workers in this batch
+                for worker in batch:
+                    worker.start()
+                    time.sleep(1.0)  # 1 second delay between individual workers in a batch (increased from 0.5)
+
+                # If not the last batch, wait before starting next batch
+                if i + batch_size < len(self.workers):
+                    self.progress.emit(
+                        f"⏳ Rate limit protection: waiting {delay_between_batches}s before next batch...",
+                        self.completed_count,
+                        total_sheets
+                    )
+                    time.sleep(delay_between_batches)
+
+            # Wait for all workers to complete
+            for worker in self.workers:
+                worker.wait()
+
+            # Check if we got at least some results
+            if len(self.all_mappings) > 0:
+                self.progress.emit("✅ Applying mappings...", total_sheets, total_sheets)
+                self.finished.emit(self.all_mappings)
+            else:
+                self.error.emit("No sheets were successfully analyzed. Please check your API key and try again.")
 
         except Exception as e:
             self.error.emit(str(e))
 
+    def on_sheet_completed(self, sheet_name, mapping):
+        """Handle completion of a single sheet detection"""
+        self.all_mappings[sheet_name] = mapping
+        self.completed_count += 1
+        total = len(self.dataframes)
+        self.progress.emit(
+            f"🤖 Completed {self.completed_count}/{total} sheets ('{sheet_name}')",
+            self.completed_count,
+            total
+        )
+
+    def on_sheet_error(self, sheet_name, error_msg):
+        """Handle error from a single sheet detection"""
+        self.error_count += 1
+        self.completed_count += 1
+        total = len(self.dataframes)
+        self.progress.emit(
+            f"⚠️ Error on sheet '{sheet_name}': {error_msg[:50]}... ({self.completed_count}/{total})",
+            self.completed_count,
+            total
+        )
+
 
 class DataSourcePage(QWizardPage):
-    """Step 1: Choose between Access DB or existing Excel file"""
+    """Step 1: Choose between Access DB, SQLite DB, or existing Excel file"""
 
     def __init__(self):
         super().__init__()
@@ -909,40 +1049,39 @@ class DataSourcePage(QWizardPage):
 
         layout = QVBoxLayout()
 
-        # Source selection
-        source_group = QGroupBox("Data Source")
-        source_layout = QVBoxLayout()
+        # Single file selection with auto-detection
+        file_group = QGroupBox("📂 Data File Selection")
+        file_layout = QVBoxLayout()
 
-        self.access_radio = QRadioButton("Convert Access Database to Excel")
-        self.excel_radio = QRadioButton("Use existing Excel file")
-        self.access_radio.setChecked(True)
+        # File browser
+        browser_layout = QHBoxLayout()
+        self.file_path = QLineEdit()
+        self.file_path.setPlaceholderText("Select Access DB (.mdb/.accdb), SQLite DB (.db/.sqlite/.sqlite3), or Excel (.xlsx/.xls)...")
+        self.file_path.textChanged.connect(self.on_file_selected)
 
-        source_layout.addWidget(self.access_radio)
-        source_layout.addWidget(self.excel_radio)
-        source_group.setLayout(source_layout)
+        browse_button = QPushButton("Browse...")
+        browse_button.clicked.connect(self.browse_file)
 
-        # Access DB file selection
-        self.access_group = QGroupBox("Access Database File")
-        access_layout = QHBoxLayout()
-        self.access_path = QLineEdit()
-        self.access_path.setPlaceholderText("Select .mdb or .accdb file...")
-        access_browse = QPushButton("Browse...")
-        access_browse.clicked.connect(self.browse_access)
-        access_layout.addWidget(self.access_path)
-        access_layout.addWidget(access_browse)
-        self.access_group.setLayout(access_layout)
+        browser_layout.addWidget(self.file_path)
+        browser_layout.addWidget(browse_button)
+        file_layout.addLayout(browser_layout)
 
-        # Excel file selection
-        self.excel_group = QGroupBox("Excel File")
-        excel_layout = QHBoxLayout()
-        self.excel_path = QLineEdit()
-        self.excel_path.setPlaceholderText("Select .xlsx file...")
-        excel_browse = QPushButton("Browse...")
-        excel_browse.clicked.connect(self.browse_excel)
-        excel_layout.addWidget(self.excel_path)
-        excel_layout.addWidget(excel_browse)
-        self.excel_group.setLayout(excel_layout)
-        self.excel_group.setEnabled(False)
+        # File type detection display
+        detection_layout = QHBoxLayout()
+        detection_layout.addWidget(QLabel("Detected Type:"))
+        self.file_type_label = QLabel("No file selected")
+        self.file_type_label.setStyleSheet("font-weight: bold; color: #666;")
+        detection_layout.addWidget(self.file_type_label)
+        detection_layout.addStretch()
+        file_layout.addLayout(detection_layout)
+
+        file_group.setLayout(file_layout)
+        layout.addWidget(file_group)
+
+        # Action button (Load or Convert)
+        self.action_button = QPushButton("Load Data")
+        self.action_button.clicked.connect(self.process_file)
+        self.action_button.setEnabled(False)
 
         # Preview section
         preview_group = QGroupBox("Data Preview")
@@ -965,80 +1104,119 @@ class DataSourcePage(QWizardPage):
         preview_layout.addWidget(self.preview_table)
         preview_group.setLayout(preview_layout)
 
-        # Load button (only for Access DB)
-        self.load_button = QPushButton("Load Database to Excel")
-        self.load_button.clicked.connect(self.export_access)
-        self.load_button.setEnabled(False)
-
         # Progress
         self.progress_label = QLabel("")
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
 
-        # Connect radio buttons
-        self.access_radio.toggled.connect(self.update_ui)
-        self.excel_radio.toggled.connect(self.update_ui)
-        self.access_path.textChanged.connect(self.validate_page)
-        self.excel_path.textChanged.connect(self.validate_page)
-
         # Add widgets
-        layout.addWidget(source_group)
-        layout.addWidget(self.access_group)
-        layout.addWidget(self.excel_group)
-        layout.addWidget(self.load_button)
+        layout.addWidget(self.action_button)
         layout.addWidget(self.progress_label)
         layout.addWidget(self.progress_bar)
         layout.addWidget(preview_group, stretch=1)  # Preview fills available space
 
         self.setLayout(layout)
 
-        # Store exported data
+        # Store data
         self.exported_excel_path = None
         self.dataframes = {}
+        self.detected_file_type = None  # Will be set by auto-detection
 
-    def update_ui(self):
-        """Update UI based on radio selection"""
-        is_access = self.access_radio.isChecked()
-        self.access_group.setEnabled(is_access)
-        self.excel_group.setEnabled(not is_access)
-        self.load_button.setVisible(is_access)
-        self.validate_page()
-
-    def browse_access(self):
-        """Browse for Access database file"""
+    def browse_file(self):
+        """Browse for any supported file type"""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Access Database",
-            "", "Access Database (*.mdb *.accdb);;All Files (*.*)"
+            self, "Select Data File",
+            "",
+            "All Supported Files (*.mdb *.accdb *.db *.sqlite *.sqlite3 *.xlsx *.xls);;"
+            "Access Database (*.mdb *.accdb);;"
+            "SQLite Database (*.db *.sqlite *.sqlite3);;"
+            "Excel Files (*.xlsx *.xls);;"
+            "All Files (*.*)"
         )
         if file_path:
-            self.access_path.setText(file_path)
+            self.file_path.setText(file_path)
 
-    def browse_excel(self):
-        """Browse for Excel file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Excel File",
-            "", "Excel Files (*.xlsx *.xls);;All Files (*.*)"
-        )
-        if file_path:
-            self.excel_path.setText(file_path)
+    def on_file_selected(self, file_path):
+        """Auto-detect file type when file is selected"""
+        if not file_path or not os.path.exists(file_path):
+            self.file_type_label.setText("No file selected")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #666;")
+            self.action_button.setEnabled(False)
+            self.detected_file_type = None
+            return
+
+        # Auto-detect by file extension
+        file_ext = Path(file_path).suffix.lower()
+
+        if file_ext in ['.mdb', '.accdb']:
+            self.detected_file_type = 'access'
+            self.file_type_label.setText("🗄️ Access Database")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #2196F3;")
+            self.action_button.setText("Convert to Excel")
+            self.action_button.setEnabled(True)
+
+        elif file_ext in ['.db', '.sqlite', '.sqlite3']:
+            self.detected_file_type = 'sqlite'
+            self.file_type_label.setText("🗄️ SQLite Database")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #4CAF50;")
+            self.action_button.setText("Convert to Excel")
+            self.action_button.setEnabled(True)
+
+        elif file_ext in ['.xlsx', '.xls']:
+            self.detected_file_type = 'excel'
+            self.file_type_label.setText("📊 Excel Workbook")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #FF9800;")
+            self.action_button.setText("Load Excel")
+            self.action_button.setEnabled(True)
+
+        else:
+            self.detected_file_type = None
+            self.file_type_label.setText("❌ Unsupported File Type")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #F44336;")
+            self.action_button.setEnabled(False)
+
+    def process_file(self):
+        """Process the selected file based on detected type"""
+        file_path = self.file_path.text()
+
+        if not file_path or not os.path.exists(file_path):
+            QMessageBox.warning(self, "Invalid File", "Please select a valid file.")
+            return
+
+        if self.detected_file_type in ['access', 'sqlite']:
+            self.export_database()
+        elif self.detected_file_type == 'excel':
             self.load_excel_preview(file_path)
 
-    def export_access(self):
-        """Export Access database to Excel"""
-        access_file = self.access_path.text()
-        if not access_file or not os.path.exists(access_file):
-            QMessageBox.warning(self, "Invalid File", "Please select a valid Access database file.")
+    def export_database(self):
+        """Export database (Access or SQLite) to Excel using detected file type"""
+        db_file = self.file_path.text()
+
+        # Validate file exists
+        if not db_file or not os.path.exists(db_file):
+            QMessageBox.warning(self, "Invalid File", "Please select a valid database file.")
+            return
+
+        # Select thread class based on detected type
+        if self.detected_file_type == 'sqlite':
+            thread_class = SQLiteExportThread
+            db_type = "SQLite"
+        elif self.detected_file_type == 'access':
+            thread_class = AccessExportThread
+            db_type = "Access"
+        else:
+            QMessageBox.warning(self, "Invalid Type", "Unsupported database type.")
             return
 
         # Generate output filename
-        output_file = str(Path(access_file).parent / f"{Path(access_file).stem}.xlsx")
+        output_file = str(Path(db_file).parent / f"{Path(db_file).stem}.xlsx")
 
         # Start export in background thread
-        self.load_button.setEnabled(False)
+        self.action_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setMaximum(0)  # Indeterminate
 
-        self.export_thread = AccessExportThread(access_file, output_file)
+        self.export_thread = thread_class(db_file, output_file)
         self.export_thread.progress.connect(self.update_progress)
         self.export_thread.finished.connect(self.export_finished)
         self.export_thread.error.connect(self.export_error)
@@ -1051,7 +1229,7 @@ class DataSourcePage(QWizardPage):
     def export_finished(self, excel_path, dataframes):
         """Handle export completion"""
         self.progress_bar.setVisible(False)
-        self.load_button.setEnabled(True)
+        self.action_button.setEnabled(True)
         self.exported_excel_path = excel_path
         self.dataframes = dataframes
 
@@ -1066,7 +1244,7 @@ class DataSourcePage(QWizardPage):
     def export_error(self, error_msg):
         """Handle export error"""
         self.progress_bar.setVisible(False)
-        self.load_button.setEnabled(True)
+        self.action_button.setEnabled(True)
         QMessageBox.critical(self, "Export Error", error_msg)
 
     def load_excel_preview(self, excel_path):
@@ -1128,27 +1306,23 @@ class DataSourcePage(QWizardPage):
 
         self.preview_table.resizeColumnsToContents()
 
-    def validate_page(self):
-        """Validate page completion"""
-        self.load_button.setEnabled(
-            self.access_radio.isChecked() and
-            bool(self.access_path.text()) and
-            os.path.exists(self.access_path.text())
-        )
-
     def isComplete(self):
         """Check if page is complete"""
-        if self.access_radio.isChecked():
+        if self.detected_file_type in ['access', 'sqlite']:
+            # Database files need to be exported first
             return self.exported_excel_path is not None
-        else:
-            return bool(self.excel_path.text()) and os.path.exists(self.excel_path.text())
+        elif self.detected_file_type == 'excel':
+            # Excel files just need to be loaded
+            return len(self.dataframes) > 0
+        return False
 
     def get_excel_path(self):
         """Get the Excel file path"""
-        if self.access_radio.isChecked():
+        if self.detected_file_type in ['access', 'sqlite']:
             return self.exported_excel_path
-        else:
-            return self.excel_path.text()
+        elif self.detected_file_type == 'excel':
+            return self.file_path.text()
+        return None
 
     def get_dataframes(self):
         """Get the loaded dataframes"""
@@ -1248,8 +1422,18 @@ class ColumnMappingPage(QWizardPage):
         self.mapping_table.setSortingEnabled(True)  # Enable sorting
         self.mapping_table.itemSelectionChanged.connect(self.on_sheet_selected)
 
-        # Save/Load configuration buttons
+        # Save/Load configuration and Toggle Select All button
         config_layout = QHBoxLayout()
+
+        # Toggle Select All button
+        self.toggle_select_btn = QPushButton("✓ Select All")
+        self.toggle_select_btn.setCheckable(True)
+        self.toggle_select_btn.clicked.connect(self.toggle_all_sheets)
+        config_layout.addWidget(self.toggle_select_btn)
+
+        config_layout.addSpacing(20)  # Add spacing between button groups
+
+        # Save/Load configuration buttons
         self.save_config_btn = QPushButton("Save Mapping Config")
         self.load_config_btn = QPushButton("Load Mapping Config")
         self.save_config_btn.clicked.connect(self.save_configuration)
@@ -1437,6 +1621,21 @@ class ColumnMappingPage(QWizardPage):
         QMessageBox.information(self, "Bulk Assign Complete",
                                f"Assigned '{column_name}' to {column_type} for all applicable sheets.")
 
+    def toggle_all_sheets(self):
+        """Toggle all sheets (select all or unselect all based on button state)"""
+        is_checked = self.toggle_select_btn.isChecked()
+
+        for row in range(self.mapping_table.rowCount()):
+            checkbox = self.mapping_table.cellWidget(row, 0)
+            if checkbox and isinstance(checkbox, QCheckBox):
+                checkbox.setChecked(is_checked)
+
+        # Update button text based on state
+        if is_checked:
+            self.toggle_select_btn.setText("✗ Unselect All")
+        else:
+            self.toggle_select_btn.setText("✓ Select All")
+
     def on_sheet_selected(self):
         """Handle sheet selection to show preview"""
         selected_rows = self.mapping_table.selectedIndexes()
@@ -1612,7 +1811,7 @@ class ColumnMappingPage(QWizardPage):
 
         # Get selected model from StartPage
         start_page = self.wizard().page(0)
-        model = start_page.get_selected_model() if hasattr(start_page, 'get_selected_model') else "claude-sonnet-4-20250514"
+        model = start_page.get_selected_model() if hasattr(start_page, 'get_selected_model') else "claude-sonnet-4-5-20250929"
 
         # Create and start AI detection thread
         self.ai_thread = AIDetectionThread(self.api_key, self.dataframes, model)
@@ -1699,7 +1898,7 @@ class ColumnMappingPage(QWizardPage):
         QMessageBox.information(
             self,
             "AI Detection Complete",
-            f"Column mappings detected for {len(all_mappings)} sheets using Claude Haiku 4.5!\n\n"
+            f"Column mappings detected for {len(all_mappings)} sheets using parallel AI analysis!\n\n"
             "Color coding:\n"
             "🟢 Green: High confidence (80%+)\n"
             "🟡 Yellow: Medium confidence (50-79%)\n"
@@ -1880,25 +2079,45 @@ class ColumnMappingPage(QWizardPage):
             # Store combined data for PAS Search page to access
             self.combined_data = combined_df
 
-            # Write combined sheet to original Excel file
-            with pd.ExcelFile(excel_path) as xls:
-                existing_sheets = {sheet: pd.read_excel(excel_path, sheet_name=sheet)
-                                 for sheet in xls.sheet_names}
+            # Get output folder from StartPage
+            start_page = self.wizard().page(0)
+            output_folder = start_page.output_folder.text() if hasattr(start_page, 'output_folder') else None
 
-            existing_sheets['Combined'] = combined_df
+            if not output_folder or not os.path.exists(output_folder):
+                QMessageBox.warning(self, "No Output Folder",
+                                   "Output folder not set. Please go back to Step 1 and select an output folder.")
+                return
 
-            with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
-                for sheet_name, df in existing_sheets.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            # Create a copy of the Excel file in the output folder
+            base_name = Path(excel_path).stem
+            output_excel = os.path.join(output_folder, f"{base_name}_EDM.xlsx")
+
+            # Write only the included sheets plus the Combined sheet to the output file
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                # Write included sheets
+                for sheet_name in included_sheets:
+                    if sheet_name in self.dataframes:
+                        self.dataframes[sheet_name].to_excel(writer, sheet_name=sheet_name, index=False)
+
+                # Write Combined sheet
+                combined_df.to_excel(writer, sheet_name='Combined', index=False)
+
+            # Store the output Excel path for later use
+            self.output_excel_path = output_excel
 
             QMessageBox.information(
                 self, "Combine Complete",
                 f"Successfully combined {len(included_sheets)} sheets into 'Combined' sheet.\n"
-                f"Total rows: {len(combined_df)}"
+                f"Total rows: {len(combined_df)}\n\n"
+                f"Output saved to:\n{output_excel}"
             )
         else:
             # No data after filtering - set empty dataframe
             self.combined_data = pd.DataFrame()
+            QMessageBox.warning(
+                self, "No Data",
+                "No data remained after applying filters. Please adjust your filter settings or column mappings."
+            )
 
 
 class PASSearchPage(QWizardPage):
@@ -2004,30 +2223,42 @@ class PASSearchPage(QWizardPage):
         self.csv_output_path = None
 
     def initializePage(self):
-        """Initialize and automatically load data from Step 3"""
-        # Get data from ColumnMappingPage (Step 3)
+        """Initialize and automatically load combined data from Step 2"""
+        # Get combined data from ColumnMappingPage (Step 2)
         column_mapping_page = self.wizard().page(2)  # ColumnMappingPage is page 2
 
-        # Check if data is available
+        # Check if combined data is available
         if hasattr(column_mapping_page, 'combined_data') and column_mapping_page.combined_data is not None:
-            # Check if DataFrame is not empty
-            if not column_mapping_page.combined_data.empty:
+            if isinstance(column_mapping_page.combined_data, pd.DataFrame) and not column_mapping_page.combined_data.empty:
                 # Use the combined data directly from ColumnMappingPage
-                self.combined_data = column_mapping_page.combined_data
+                self.combined_data = column_mapping_page.combined_data.copy()
 
                 # Update info label to show data is loaded
                 parts_count = len(self.combined_data)
-                self.progress_label.setText(f"✓ Loaded {parts_count} parts from Step 3. Click 'Start Part Search' to begin.")
+                cols = list(self.combined_data.columns)
+
+                self.progress_label.setText(
+                    f"✓ Auto-loaded {parts_count} parts from Step 2 (Combined sheet)\n"
+                    f"Columns: {', '.join(cols[:5])}{'...' if len(cols) > 5 else ''}\n"
+                    f"Click 'Start Part Search' to begin."
+                )
                 self.progress_label.setStyleSheet("color: green; font-weight: bold;")
                 self.search_button.setEnabled(True)
+
+                print(f"SUCCESS: Loaded {parts_count} parts from combined DataFrame")
             else:
-                self.progress_label.setText("⚠ No data available after filtering. Please go back to Step 3 and adjust filter conditions.")
+                self.progress_label.setText("⚠ No data available after filtering. Please go back to Step 2 and adjust filter conditions.")
                 self.progress_label.setStyleSheet("color: orange;")
                 self.search_button.setEnabled(False)
+                self.combined_data = pd.DataFrame()
         else:
-            self.progress_label.setText("⚠ No data available. Please go back to Step 3 and ensure data is combined.")
+            self.progress_label.setText(
+                "⚠ No combined data available. Please go back to Step 2 and click 'Next' to combine sheets.\n"
+                "Make sure at least one sheet is selected and has MFG/MFG PN columns mapped."
+            )
             self.progress_label.setStyleSheet("color: orange;")
             self.search_button.setEnabled(False)
+            self.combined_data = pd.DataFrame()
 
     def start_search(self):
         """Start the PAS search process using preloaded data"""
@@ -3414,11 +3645,11 @@ class PASAPIClient:
 
 
 class SupplyFrameReviewPage(QWizardPage):
-    """Step 5: Review PAS Matches and Normalize Manufacturers"""
+    """Step 4: Review PAS Matches and Normalize Manufacturers"""
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Step 5: Review Matches & Manufacturer Normalization")
+        self.setTitle("Step 4: Review Matches & Manufacturer Normalization")
         self.setSubTitle("Review match results (Found/Multiple/Need Review/None) and normalize manufacturer names")
 
         self.search_results = []
@@ -5153,57 +5384,142 @@ class SupplyFrameReviewPage(QWizardPage):
                               f"• Settings will be applied when you click 'Apply Changes'\n\n"
                               f"You can continue editing the normalizations as needed.")
 
+    def validatePage(self):
+        """Apply normalizations and create Combined_New sheet before proceeding"""
+        try:
+            # Get the combined data from Step 2
+            column_mapping_page = self.wizard().page(2)
+            if not hasattr(column_mapping_page, 'combined_data') or column_mapping_page.combined_data is None:
+                QMessageBox.warning(self, "No Data", "No combined data found from Step 2.")
+                return False
+
+            # Get the output Excel path
+            if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
+                QMessageBox.warning(self, "No Output File", "Output Excel file not found.")
+                return False
+
+            output_excel = column_mapping_page.output_excel_path
+
+            # Start with a copy of the combined data
+            new_data = column_mapping_page.combined_data.copy()
+
+            # Apply selected partial matches from search results
+            if hasattr(self, 'search_assign_data') and self.search_assign_data:
+                for part_data in self.search_assign_data:
+                    if 'selected_match' in part_data and part_data['selected_match']:
+                        selected = part_data['selected_match']
+                        # Find matching row in new_data
+                        mask = (new_data['MFG_PN'] == part_data.get('part_number', ''))
+                        if mask.any():
+                            new_data.loc[mask, 'MFG'] = selected.get('manufacturer', '')
+
+            # Apply manufacturer normalizations
+            if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:
+                for row_idx in range(self.norm_table.rowCount()):
+                    include_checkbox = self.norm_table.cellWidget(row_idx, 0)
+                    if include_checkbox and include_checkbox.isChecked():
+                        original_item = self.norm_table.item(row_idx, 1)
+                        canonical_item = self.norm_table.item(row_idx, 2)
+
+                        if original_item and canonical_item:
+                            original_mfg = original_item.text()
+                            canonical_mfg = canonical_item.text()
+
+                            # Apply normalization
+                            if 'MFG' in new_data.columns:
+                                new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+
+            # Read existing sheets from output Excel
+            with pd.ExcelFile(output_excel) as xls:
+                existing_sheets = {sheet: pd.read_excel(output_excel, sheet_name=sheet)
+                                 for sheet in xls.sheet_names}
+
+            # Add Combined_New sheet
+            existing_sheets['Combined_New'] = new_data
+
+            # Write back to Excel
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                for sheet_name, df in existing_sheets.items():
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # Store for comparison page
+            self.updated_data = new_data
+
+            return True
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to apply changes: {str(e)}")
+            return False
+
 
 class ComparisonPage(QWizardPage):
-    """Step 6: Old vs New Comparison - Show changes made"""
+    """Step 5: Side-by-Side Comparison - Beyond Compare Style"""
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Step 6: Review Changes")
-        self.setSubTitle("Review all changes made to manufacturer names and match selections")
+        self.setTitle("Step 5: Review Changes - Side-by-Side Comparison")
+        self.setSubTitle("Compare Combined (original) vs Combined_New (with normalization)")
 
         layout = QVBoxLayout()
 
         # Summary section
         summary_group = QGroupBox("📊 Changes Summary")
-        summary_layout = QVBoxLayout()
+        summary_layout = QHBoxLayout()
 
         self.summary_label = QLabel("No changes to display")
         self.summary_label.setWordWrap(True)
         summary_layout.addWidget(self.summary_label)
 
+        # Filter controls
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Show:"))
+
+        self.show_all_radio = QRadioButton("All Rows")
+        self.show_changes_radio = QRadioButton("Changes Only")
+        self.show_all_radio.setChecked(True)
+        self.show_all_radio.toggled.connect(self.apply_filter)
+        self.show_changes_radio.toggled.connect(self.apply_filter)
+
+        filter_layout.addWidget(self.show_all_radio)
+        filter_layout.addWidget(self.show_changes_radio)
+        filter_layout.addStretch()
+
+        summary_layout.addLayout(filter_layout)
         summary_group.setLayout(summary_layout)
         layout.addWidget(summary_group)
 
-        # Comparison table
-        comparison_group = QGroupBox("🔄 Old vs New Comparison")
-        comparison_layout = QVBoxLayout()
+        # Side-by-side comparison tables
+        comparison_layout = QHBoxLayout()
 
-        self.comparison_table = QTableWidget()
-        self.comparison_table.setColumnCount(5)
-        self.comparison_table.setHorizontalHeaderLabels([
-            "Part Number",
-            "Original MFG",
-            "New MFG",
-            "Change Type",
-            "Notes"
-        ])
+        # Left table: Combined (Original)
+        left_group = QGroupBox("📄 Combined (Original)")
+        left_layout = QVBoxLayout()
 
-        # Set column resize modes
-        header = self.comparison_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Original MFG
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # New MFG
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Change Type
-        header.setSectionResizeMode(4, QHeaderView.Stretch)  # Notes
+        self.left_table = QTableWidget()
+        self.left_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.left_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.left_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.left_table.verticalScrollBar().valueChanged.connect(self.sync_scroll_right)
 
-        self.comparison_table.setAlternatingRowColors(True)
-        self.comparison_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.comparison_table.setSortingEnabled(True)  # Enable sorting
+        left_layout.addWidget(self.left_table)
+        left_group.setLayout(left_layout)
+        comparison_layout.addWidget(left_group)
 
-        comparison_layout.addWidget(self.comparison_table)
-        comparison_group.setLayout(comparison_layout)
-        layout.addWidget(comparison_group, stretch=1)
+        # Right table: Combined_New (After Changes)
+        right_group = QGroupBox("📄 Combined_New (After Changes)")
+        right_layout = QVBoxLayout()
+
+        self.right_table = QTableWidget()
+        self.right_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.right_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.right_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.right_table.verticalScrollBar().valueChanged.connect(self.sync_scroll_left)
+
+        right_layout.addWidget(self.right_table)
+        right_group.setLayout(right_layout)
+        comparison_layout.addWidget(right_group)
+
+        layout.addLayout(comparison_layout, stretch=1)
 
         # Export options
         export_group = QGroupBox("💾 Export Options")
@@ -5231,99 +5547,191 @@ class ComparisonPage(QWizardPage):
         self.setLayout(layout)
 
         # Store data
-        self.original_data = []
-        self.normalized_data = []
-        self.changes = []
+        self.original_df = None
+        self.new_df = None
+        self.all_rows = []
+        self.syncing_scroll = False  # Prevent scroll recursion
+
+    def sync_scroll_right(self, value):
+        """Sync right table scroll with left table"""
+        if not self.syncing_scroll:
+            self.syncing_scroll = True
+            self.right_table.verticalScrollBar().setValue(value)
+            self.syncing_scroll = False
+
+    def sync_scroll_left(self, value):
+        """Sync left table scroll with right table"""
+        if not self.syncing_scroll:
+            self.syncing_scroll = True
+            self.left_table.verticalScrollBar().setValue(value)
+            self.syncing_scroll = False
 
     def initializePage(self):
-        """Initialize by loading data from SupplyFrameReviewPage"""
-        review_page = self.wizard().page(4)  # SupplyFrameReviewPage is page 4
+        """Initialize by loading Combined and Combined_New sheets"""
+        # Get the output Excel file path from ColumnMappingPage
+        column_mapping_page = self.wizard().page(2)
 
-        # Get original and normalized data
-        if hasattr(review_page, 'original_data'):
-            self.original_data = review_page.original_data
+        if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
+            self.summary_label.setText("❌ Output Excel file not found. Please go back and complete Step 2.")
+            return
 
-        if hasattr(review_page, 'manufacturer_normalizations'):
-            self.normalizations = review_page.manufacturer_normalizations
-        else:
-            self.normalizations = {}
+        excel_path = column_mapping_page.output_excel_path
 
-        # Build comparison
-        self.build_comparison()
+        if not os.path.exists(excel_path):
+            self.summary_label.setText(f"❌ Excel file not found: {excel_path}")
+            return
+
+        try:
+            # Load Combined (original) sheet
+            if 'Combined' in pd.ExcelFile(excel_path).sheet_names:
+                self.original_df = pd.read_excel(excel_path, sheet_name='Combined')
+            else:
+                self.summary_label.setText("❌ 'Combined' sheet not found in Excel file")
+                return
+
+            # Load Combined_New (after changes) sheet
+            if 'Combined_New' in pd.ExcelFile(excel_path).sheet_names:
+                self.new_df = pd.read_excel(excel_path, sheet_name='Combined_New')
+            else:
+                # If Combined_New doesn't exist yet, use Combined as placeholder
+                self.new_df = self.original_df.copy()
+                self.summary_label.setText("⚠ 'Combined_New' sheet not found - showing original data only")
+
+            # Build comparison
+            self.build_comparison()
+
+        except Exception as e:
+            self.summary_label.setText(f"❌ Error loading data: {str(e)}")
 
     def build_comparison(self):
-        """Build the comparison between original and normalized data"""
-        self.changes = []
+        """Build side-by-side comparison with Beyond Compare styling"""
+        if self.original_df is None or self.new_df is None:
+            return
 
-        # Ensure original_data is a list of dictionaries
-        if not hasattr(self, 'original_data') or self.original_data is None:
-            self.original_data = []
+        # Ensure both DataFrames have the same columns
+        all_columns = list(set(self.original_df.columns) | set(self.new_df.columns))
 
-        # If original_data is a DataFrame, convert to list of dicts
-        if hasattr(self.original_data, 'to_dict'):
-            self.original_data = self.original_data.to_dict('records')
+        # Add missing columns
+        for col in all_columns:
+            if col not in self.original_df.columns:
+                self.original_df[col] = ""
+            if col not in self.new_df.columns:
+                self.new_df[col] = ""
 
-        # Compare original data with normalizations
-        for orig_item in self.original_data:
-            if not isinstance(orig_item, dict):
-                continue  # Skip non-dict items
+        # Reorder columns to match
+        self.original_df = self.original_df[all_columns]
+        self.new_df = self.new_df[all_columns]
 
-            orig_mfg = orig_item.get('MFG', '')
-            part_num = orig_item.get('MFG_PN', '')
+        # Build row comparison data
+        self.all_rows = []
+        max_rows = max(len(self.original_df), len(self.new_df))
 
-            # Check if this manufacturer was normalized
-            if orig_mfg in self.normalizations:
-                new_mfg = self.normalizations[orig_mfg]
-                if new_mfg != orig_mfg:
-                    self.changes.append({
-                        'part_number': part_num,
-                        'original_mfg': orig_mfg,
-                        'new_mfg': new_mfg,
-                        'change_type': 'Normalized',
-                        'notes': f'Manufacturer name standardized'
-                    })
+        changed_count = 0
+        for i in range(max_rows):
+            row_changed = False
+            if i < len(self.original_df) and i < len(self.new_df):
+                # Compare each cell
+                for col in all_columns:
+                    old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
+                    new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
+                    if old_val != new_val:
+                        row_changed = True
+                        break
+            else:
+                row_changed = True  # Row exists in one but not the other
 
-        # Update display
-        self.update_comparison_display()
+            if row_changed:
+                changed_count += 1
 
-    def update_comparison_display(self):
-        """Update the comparison table with changes"""
+            self.all_rows.append({
+                'index': i,
+                'changed': row_changed
+            })
+
         # Update summary
-        total_parts = len(self.original_data)
-        changed_parts = len(self.changes)
+        total = len(self.all_rows)
+        unchanged = total - changed_count
+        self.summary_label.setText(
+            f"<b>Total Rows:</b> {total} | "
+            f"<b>Changed:</b> {changed_count} ({changed_count/total*100:.1f}%) | "
+            f"<b>Unchanged:</b> {unchanged} ({unchanged/total*100:.1f}%)"
+        )
 
-        if changed_parts > 0:
-            summary_text = f"""
-<b>Total Parts:</b> {total_parts}<br>
-<b>Parts Changed:</b> {changed_parts} ({changed_parts/total_parts*100:.1f}%)<br>
-<b>Parts Unchanged:</b> {total_parts - changed_parts} ({(total_parts-changed_parts)/total_parts*100:.1f}%)
-"""
-            self.summary_label.setText(summary_text)
+        # Populate tables
+        self.populate_tables()
+
+    def populate_tables(self):
+        """Populate both tables with data and Beyond Compare style formatting"""
+        if self.original_df is None or self.new_df is None:
+            return
+
+        # Filter rows based on radio selection
+        if self.show_changes_radio.isChecked():
+            display_rows = [r for r in self.all_rows if r['changed']]
         else:
-            self.summary_label.setText("✓ No changes were made to the data")
+            display_rows = self.all_rows
 
-        # Populate comparison table
-        self.comparison_table.setRowCount(len(self.changes))
+        # Set up columns
+        columns = list(self.original_df.columns)
+        self.left_table.setColumnCount(len(columns))
+        self.left_table.setHorizontalHeaderLabels(columns)
+        self.right_table.setColumnCount(len(columns))
+        self.right_table.setHorizontalHeaderLabels(columns)
 
-        for row, change in enumerate(self.changes):
-            # Part Number
-            self.comparison_table.setItem(row, 0, QTableWidgetItem(change['part_number']))
+        # Set row counts
+        self.left_table.setRowCount(len(display_rows))
+        self.right_table.setRowCount(len(display_rows))
 
-            # Original MFG
-            orig_item = QTableWidgetItem(change['original_mfg'])
-            orig_item.setBackground(QColor(255, 230, 230))  # Light red
-            self.comparison_table.setItem(row, 1, orig_item)
+        # Populate rows with Beyond Compare styling
+        for display_idx, row_info in enumerate(display_rows):
+            i = row_info['index']
+            row_changed = row_info['changed']
 
-            # New MFG
-            new_item = QTableWidgetItem(change['new_mfg'])
-            new_item.setBackground(QColor(230, 255, 230))  # Light green
-            self.comparison_table.setItem(row, 2, new_item)
+            # Populate left table (original)
+            if i < len(self.original_df):
+                for col_idx, col in enumerate(columns):
+                    old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
+                    item = QTableWidgetItem(old_val)
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
 
-            # Change Type
-            self.comparison_table.setItem(row, 3, QTableWidgetItem(change['change_type']))
+                    # Compare with new value for cell-level highlighting
+                    if i < len(self.new_df):
+                        new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
+                        if old_val != new_val:
+                            # Cell changed - light red background, bold font
+                            item.setBackground(QColor(255, 200, 200))  # Light red
+                            font = item.font()
+                            font.setBold(True)
+                            item.setFont(font)
 
-            # Notes
-            self.comparison_table.setItem(row, 4, QTableWidgetItem(change['notes']))
+                    self.left_table.setItem(display_idx, col_idx, item)
+
+            # Populate right table (new)
+            if i < len(self.new_df):
+                for col_idx, col in enumerate(columns):
+                    new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
+                    item = QTableWidgetItem(new_val)
+                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+
+                    # Compare with old value for cell-level highlighting
+                    if i < len(self.original_df):
+                        old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
+                        if old_val != new_val:
+                            # Cell changed - light green background, bold font
+                            item.setBackground(QColor(200, 255, 200))  # Light green
+                            font = item.font()
+                            font.setBold(True)
+                            item.setFont(font)
+
+                    self.right_table.setItem(display_idx, col_idx, item)
+
+        # Resize columns to fit content
+        self.left_table.resizeColumnsToContents()
+        self.right_table.resizeColumnsToContents()
+
+    def apply_filter(self):
+        """Re-populate tables based on filter selection"""
+        self.populate_tables()
 
     def export_to_csv(self):
         """Export comparison to CSV"""
@@ -5407,12 +5815,12 @@ class EDMWizard(QWizard):
         )
 
         # Add pages - New 6-page flow
-        self.start_page = StartPage()                          # Step 1: API credentials & output folder
-        self.data_source_page = DataSourcePage()               # Step 2: Access DB export or Excel selection
-        self.column_mapping_page = ColumnMappingPage()         # Step 3: Column mapping & combine
-        self.pas_search_page = PASSearchPage()                 # Step 4: PAS API search
-        self.review_page = SupplyFrameReviewPage()             # Step 5: Review matches & normalization
-        self.comparison_page = ComparisonPage()                # Step 6: Old vs New comparison
+        self.start_page = StartPage()                          # Welcome: API credentials & output folder
+        self.data_source_page = DataSourcePage()               # Step 1: Access DB export or Excel selection
+        self.column_mapping_page = ColumnMappingPage()         # Step 2: Column mapping & combine
+        self.pas_search_page = PASSearchPage()                 # Step 3: PAS API search
+        self.review_page = SupplyFrameReviewPage()             # Step 4: Review matches & normalization
+        self.comparison_page = ComparisonPage()                # Step 5: Old vs New comparison
 
         self.addPage(self.start_page)              # Page 0
         self.addPage(self.data_source_page)        # Page 1

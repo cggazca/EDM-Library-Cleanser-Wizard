@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an EDM (Engineering Data Management) library processing toolkit for Xpedition/PADS layout data. The project handles conversion workflows between Microsoft Access databases (.mdb/.accdb), Excel spreadsheets, and XML formats compatible with xml-console for EDM Library Creator (v1.7.000.0130).
+This is an EDM (Engineering Data Management) library processing toolkit for Xpedition/PADS layout data. The project handles conversion workflows between Microsoft Access databases (.mdb/.accdb), SQLite databases (.db/.sqlite/.sqlite3), Excel spreadsheets, and XML formats compatible with xml-console for EDM Library Creator (v1.7.000.0130).
 
 ## Core Architecture
 
@@ -15,24 +15,26 @@ The codebase provides both individual command-line tools and an integrated wizar
 
 **Architecture**: The wizard uses PyQt5's `QWizard` framework with 6 distinct pages:
 1. **StartPage** - Claude AI and PAS API configuration + output folder selection
-2. **DataSourcePage** - Access DB export or Excel file selection with preview
-3. **ColumnMappingPage** - Column mapping with AI-assisted detection and sheet combining
+2. **DataSourcePage** - Access DB, SQLite DB, or Excel file selection with preview (auto-detects by file extension)
+3. **ColumnMappingPage** - Column mapping with AI-assisted parallel detection and sheet combining
 4. **PASSearchPage** - Part Aggregation Service (PAS) search (auto-loads data from Step 3)
 5. **SupplyFrameReviewPage** - Review match results by category (Found/Multiple/Need Review/None) + manufacturer normalization
 6. **ComparisonPage** - Old vs New comparison showing all changes made with export options
 
 **Key UI Components**:
 - `CollapsibleGroupBox` - Custom checkable QGroupBox that expands/collapses content when toggled
-- Thread-based workers (`ExportThread`, `ColumnDetectionThread`, `PASSearchThread`) for long-running operations
+- Thread-based workers (`AccessExportThread`, `SQLiteExportThread`, `SheetDetectionWorker`, `PASSearchThread`) for long-running operations
+- Parallel AI detection - Each sheet analyzed concurrently for faster processing
 - Tabbed interface in Step 5 for categorized match review
 - Scroll areas and dynamic section expansion for better UX
 - Color-coded comparison table in Step 6 (red=old, green=new)
 
 **AI Integration** (Optional, requires Claude API key):
-- Column mapping auto-detection (Step 3)
+- Column mapping auto-detection (Step 3) - **Parallelized for all sheets simultaneously**
 - Part number match suggestions using similarity scoring (Step 5)
 - Manufacturer normalization detection (Step 5)
-- Uses `anthropic` package with Claude Sonnet 4.5 model
+- Uses `anthropic` package with Claude Sonnet 4.5, Haiku 4.5, or Opus 4.1 models
+- Model selection available: Sonnet 4.5 (recommended), Haiku 4.5 (fastest), Opus 4.1 (most capable)
 
 **PAS API Integration** (Required, uses Client ID/Secret):
 - Direct part search via Siemens Part Aggregation Service (Step 4)
@@ -55,7 +57,15 @@ Extracts data from Microsoft Access databases into Excel format.
 - **Technology**: Uses SQLAlchemy with pyodbc and the Microsoft Access ODBC driver
 - **Configuration**: Set `output_as_single_spreadsheet = True/False` to control output format
 
-### 2. Excel Sheet Combiner (`excel_sheet_combiner.py`)
+### 2. SQLite Database Support (Built into EDM Wizard)
+Extracts data from SQLite databases into Excel format.
+- **Input**: `.db`, `.sqlite`, or `.sqlite3` files
+- **Output**: Single Excel workbook with multiple sheets (one per table)
+- **Technology**: Uses Python's built-in sqlite3 module with pandas
+- **Auto-detection**: File type automatically detected by extension (.db, .sqlite, .sqlite3)
+- **Integration**: Fully integrated into EDM Wizard Step 2 (DataSourcePage)
+
+### 3. Excel Sheet Combiner (`excel_sheet_combiner.py`)
 Interactive GUI tool to merge multiple Excel sheets with column selection.
 - **Input**: Excel workbook with multiple sheets
 - **Output**: Combined Excel file with selected columns + optional XML files

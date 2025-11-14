@@ -1197,6 +1197,15 @@ class DataSourcePage(QWizardPage):
             QMessageBox.warning(self, "Invalid File", "Please select a valid database file.")
             return
 
+        # Get output folder from StartPage
+        start_page = self.wizard().page(0)
+        output_folder = start_page.output_folder_input.text() if hasattr(start_page, 'output_folder_input') else None
+
+        if not output_folder or not os.path.exists(output_folder):
+            QMessageBox.warning(self, "No Output Folder",
+                               "Output folder not set. Please go back to the Welcome page and select an output folder.")
+            return
+
         # Select thread class based on detected type
         if self.detected_file_type == 'sqlite':
             thread_class = SQLiteExportThread
@@ -1208,8 +1217,8 @@ class DataSourcePage(QWizardPage):
             QMessageBox.warning(self, "Invalid Type", "Unsupported database type.")
             return
 
-        # Generate output filename
-        output_file = str(Path(db_file).parent / f"{Path(db_file).stem}.xlsx")
+        # Generate output filename in the output folder
+        output_file = os.path.join(output_folder, f"{Path(db_file).stem}.xlsx")
 
         # Start export in background thread
         self.action_button.setEnabled(False)
@@ -1248,14 +1257,38 @@ class DataSourcePage(QWizardPage):
         QMessageBox.critical(self, "Export Error", error_msg)
 
     def load_excel_preview(self, excel_path):
-        """Load and preview Excel file"""
+        """Load and preview Excel file, copying it to output folder"""
         try:
+            # Get output folder from StartPage
+            start_page = self.wizard().page(0)
+            output_folder = start_page.output_folder_input.text() if hasattr(start_page, 'output_folder_input') else None
+
+            if not output_folder or not os.path.exists(output_folder):
+                QMessageBox.warning(self, "No Output Folder",
+                                   "Output folder not set. Please go back to the Welcome page and select an output folder.")
+                return
+
+            # Load the Excel file
             xl_file = pd.ExcelFile(excel_path)
             self.dataframes = {sheet: pd.read_excel(excel_path, sheet_name=sheet)
                              for sheet in xl_file.sheet_names}
+
+            # Copy Excel file to output folder
+            import shutil
+            base_name = Path(excel_path).name
+            output_excel = os.path.join(output_folder, base_name)
+
+            # Copy the file
+            shutil.copy2(excel_path, output_excel)
+
+            # Store the output path (not the original path)
+            self.exported_excel_path = output_excel
+
             self.show_preview(self.dataframes)
-            self.exported_excel_path = excel_path
             self.completeChanged.emit()
+
+            QMessageBox.information(self, "Excel Loaded",
+                                   f"Excel file copied to output folder:\n{output_excel}")
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load Excel file: {str(e)}")
 
@@ -2079,45 +2112,37 @@ class ColumnMappingPage(QWizardPage):
             # Store combined data for PAS Search page to access
             self.combined_data = combined_df
 
-            # Get output folder from StartPage
-            start_page = self.wizard().page(0)
-            output_folder = start_page.output_folder.text() if hasattr(start_page, 'output_folder') else None
+            # The Excel file is already in the output folder (from Step 1)
+            # We just need to update it by adding the Combined sheet
+            if not excel_path or not os.path.exists(excel_path):
+                raise Exception("Excel file not found. Please go back to Step 1.")
 
-            if not output_folder or not os.path.exists(output_folder):
-                QMessageBox.warning(self, "No Output Folder",
-                                   "Output folder not set. Please go back to Step 1 and select an output folder.")
-                return
+            # Read existing sheets from the Excel file
+            with pd.ExcelFile(excel_path) as xls:
+                existing_sheets = {sheet: pd.read_excel(excel_path, sheet_name=sheet)
+                                 for sheet in xls.sheet_names}
 
-            # Create a copy of the Excel file in the output folder
-            base_name = Path(excel_path).stem
-            output_excel = os.path.join(output_folder, f"{base_name}_EDM.xlsx")
+            # Add/update the Combined sheet
+            existing_sheets['Combined'] = combined_df
 
-            # Write only the included sheets plus the Combined sheet to the output file
-            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                # Write included sheets
-                for sheet_name in included_sheets:
-                    if sheet_name in self.dataframes:
-                        self.dataframes[sheet_name].to_excel(writer, sheet_name=sheet_name, index=False)
+            # Write back all sheets to the same Excel file
+            with pd.ExcelWriter(excel_path, engine='xlsxwriter') as writer:
+                for sheet_name, df in existing_sheets.items():
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                # Write Combined sheet
-                combined_df.to_excel(writer, sheet_name='Combined', index=False)
-
-            # Store the output Excel path for later use
-            self.output_excel_path = output_excel
+            # Store the Excel path for later use (same file, just updated)
+            self.output_excel_path = excel_path
 
             QMessageBox.information(
                 self, "Combine Complete",
                 f"Successfully combined {len(included_sheets)} sheets into 'Combined' sheet.\n"
                 f"Total rows: {len(combined_df)}\n\n"
-                f"Output saved to:\n{output_excel}"
+                f"Updated file:\n{excel_path}"
             )
         else:
             # No data after filtering - set empty dataframe
             self.combined_data = pd.DataFrame()
-            QMessageBox.warning(
-                self, "No Data",
-                "No data remained after applying filters. Please adjust your filter settings or column mappings."
-            )
+            raise Exception("No data remained after applying filters. Please adjust your filter settings or column mappings.")
 
 
 class PASSearchPage(QWizardPage):
@@ -2417,7 +2442,7 @@ class PASSearchPage(QWizardPage):
 
         # Save results to CSV in output folder from StartPage
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_filename = f"SearchAndAssign_Result_{timestamp}.csv"
+        csv_filename = f"PAS_Search_Results_{timestamp}.csv"
         self.csv_output_path = self.output_folder / csv_filename
 
         try:

@@ -3756,6 +3756,13 @@ class SupplyFrameReviewPage(QWizardPage):
         self.normalization_reasoning = {}  # Store fuzzy/AI reasoning for each normalization
         self.original_data = []  # Store original data for comparison
         self.api_key = None
+        
+        # Initialize categorized parts lists
+        self.found_parts = []
+        self.multiple_parts = []
+        self.need_review_parts = []
+        self.none_parts = []
+        self.errors_parts = []
 
         # Main layout with vertical splitter for resizable sections
         page_layout = QVBoxLayout()
@@ -3897,8 +3904,41 @@ class SupplyFrameReviewPage(QWizardPage):
         # Update summary
         self.update_summary_display(found, multiple, need_review, none, errors)
 
-        # Populate review tables
-        self.populate_review_tables(found, multiple, need_review, none, errors)
+        # Update tab counts
+        self.review_tabs.setTabText(0, f"⚠ Multiple ({len(multiple)})")
+        self.review_tabs.setTabText(1, f"👁 Need Review ({len(need_review)})")
+        self.review_tabs.setTabText(2, f"✓ Found ({len(found)})")
+        self.review_tabs.setTabText(3, f"✗ None ({len(none)})")
+        self.review_tabs.setTabText(4, f"❌ Errors ({len(errors)})")
+
+        # Store categorized data
+        self.found_parts = found
+        self.multiple_parts = multiple
+        self.need_review_parts = need_review
+        self.none_parts = none
+        self.errors_parts = errors
+
+        # Populate all tabs
+        self.populate_category_table(self.found_table, found, show_actions=False)
+        self.populate_category_table(self.multiple_table, multiple, show_actions=True)
+        self.populate_category_table(self.need_review_table, need_review, show_actions=True)
+        self.populate_category_table(self.none_table, none, show_actions=False)
+        self.populate_category_table(self.errors_table, errors, show_actions=False)
+
+        # For backward compatibility
+        self.parts_needing_review = multiple + need_review
+
+        # Enable buttons if there are parts to review
+        start_page = self.wizard().page(0)
+        api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+        
+        if len(multiple) > 0:
+            self.multiple_auto_select_btn.setEnabled(True)
+            self.multiple_ai_suggest_btn.setEnabled(bool(api_key and ANTHROPIC_AVAILABLE))
+        
+        if len(need_review) > 0:
+            self.need_review_auto_select_btn.setEnabled(True)
+            self.need_review_ai_suggest_btn.setEnabled(bool(api_key and ANTHROPIC_AVAILABLE))
 
         # Identify parts needing normalization
         self.identify_normalization_candidates()
@@ -3961,67 +4001,6 @@ class SupplyFrameReviewPage(QWizardPage):
         csv_group.setLayout(csv_layout)
         return csv_group
 
-    def populate_review_tables(self, found, multiple, need_review, none, errors):
-        """Populate the review tables with categorized results"""
-        # Populate each table with its respective category
-        self._populate_table(self.found_table, found)
-        self._populate_table(self.multiple_table, multiple)
-        self._populate_table(self.need_review_table, need_review)
-        self._populate_table(self.none_table, none)
-        self._populate_table(self.errors_table, errors)
-        
-        # Update tab labels with counts
-        self.review_tabs.setTabText(0, f"✓ Found ({len(found)})")
-        self.review_tabs.setTabText(1, f"⚠ Multiple ({len(multiple)})")
-        self.review_tabs.setTabText(2, f"👁 Need Review ({len(need_review)})")
-        self.review_tabs.setTabText(3, f"✗ None ({len(none)})")
-        self.review_tabs.setTabText(4, f"❌ Errors ({len(errors)})")
-    
-    def _populate_table(self, table, results):
-        """Helper method to populate a single table with results"""
-        # Temporarily disable sorting for faster population
-        table.setSortingEnabled(False)
-        
-        table.setRowCount(len(results))
-        
-        for row_idx, result in enumerate(results):
-            # Column 0: Part Number
-            part_number = str(result.get('PartNumber', ''))
-            table.setItem(row_idx, 0, QTableWidgetItem(part_number))
-            
-            # Column 1: Manufacturer
-            manufacturer = str(result.get('ManufacturerName', ''))
-            table.setItem(row_idx, 1, QTableWidgetItem(manufacturer))
-            
-            # Column 2: Match Status
-            status = result.get('MatchStatus', '')
-            status_item = QTableWidgetItem(status)
-            # Apply color coding based on status
-            if status == 'Found':
-                status_item.setBackground(QColor(230, 255, 230))  # Light green
-            elif status == 'Multiple':
-                status_item.setBackground(QColor(255, 240, 200))  # Light orange
-            elif status == 'Need user review':
-                status_item.setBackground(QColor(230, 240, 255))  # Light blue
-            elif status == 'None':
-                status_item.setBackground(QColor(240, 240, 240))  # Light gray
-            elif status == 'Error':
-                status_item.setBackground(QColor(255, 230, 230))  # Light red
-            table.setItem(row_idx, 2, status_item)
-            
-            # Column 3: Match Details
-            matches = result.get('matches', [])
-            if matches:
-                # Show first 3 matches
-                match_details = ', '.join(matches[:3])
-                if len(matches) > 3:
-                    match_details += f' ... (+{len(matches) - 3} more)'
-            else:
-                match_details = 'No matches found'
-            table.setItem(row_idx, 3, QTableWidgetItem(match_details))
-        
-        # Re-enable sorting
-        table.setSortingEnabled(True)
 
     def identify_normalization_candidates(self):
         """Identify manufacturers that need normalization"""
@@ -4029,58 +4008,449 @@ class SupplyFrameReviewPage(QWizardPage):
         pass
 
     def create_review_section_widget(self):
-        """Section 2: Review Matches by Category"""
-        review_group = QGroupBox("🔍 Review Match Results")
+        """Section 2: Review Partial Matches - Tabbed by Match Status"""
+        review_group = QGroupBox("2. Review Match Results by Category")
         review_layout = QVBoxLayout()
 
-        # Create tab widget for different match categories
+        # Create tab widget
         self.review_tabs = QTabWidget()
-
-        # Tab 1: Found (exact matches)
-        self.found_table = self.create_results_table()
-        self.review_tabs.addTab(self.found_table, "✓ Found")
-
-        # Tab 2: Multiple matches
-        self.multiple_table = self.create_results_table()
-        self.review_tabs.addTab(self.multiple_table, "⚠ Multiple")
-
-        # Tab 3: Need user review
-        self.need_review_table = self.create_results_table()
-        self.review_tabs.addTab(self.need_review_table, "👁 Need Review")
-
-        # Tab 4: None (no matches)
-        self.none_table = self.create_results_table()
-        self.review_tabs.addTab(self.none_table, "✗ None")
-
-        # Tab 5: Errors (optional - only if there are errors)
-        self.errors_table = self.create_results_table()
-        self.review_tabs.addTab(self.errors_table, "❌ Errors")
-
+        
+        # Create tabs for each category
+        self.found_tab = self.create_category_tab("Found", show_actions=False)
+        self.multiple_tab = self.create_category_tab("Multiple", show_actions=True)
+        self.need_review_tab = self.create_category_tab("Need Review", show_actions=True)
+        self.none_tab = self.create_category_tab("None", show_actions=False)
+        self.errors_tab = self.create_category_tab("Errors", show_actions=False)
+        
+        # Add tabs to widget with emoji indicators
+        self.review_tabs.addTab(self.multiple_tab, "⚠ Multiple (0)")
+        self.review_tabs.addTab(self.need_review_tab, "👁 Need Review (0)")
+        self.review_tabs.addTab(self.found_tab, "✓ Found (0)")
+        self.review_tabs.addTab(self.none_tab, "✗ None (0)")
+        self.review_tabs.addTab(self.errors_tab, "❌ Errors (0)")
+        
         review_layout.addWidget(self.review_tabs)
         review_group.setLayout(review_layout)
         return review_group
 
-    def create_results_table(self):
-        """Create a table widget for displaying match results"""
-        table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["Part Number", "Manufacturer", "Match Status", "Match Details"])
-
+    def create_category_tab(self, category, show_actions=True):
+        """Create a tab for a specific match category with two-panel layout"""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        
+        # Create horizontal splitter for two-panel layout
+        splitter = QSplitter(Qt.Horizontal)
+        
+        # Left panel: Parts list
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        
+        # Parts list header
+        parts_header_layout = QHBoxLayout()
+        parts_header_layout.addWidget(QLabel(f"{category} Parts:"))
+        
+        # Add review count for interactive categories
+        if show_actions:
+            review_label = QLabel("(0 of 0 reviewed)")
+            review_label.setStyleSheet("color: #1976d2; font-weight: bold;")
+            parts_header_layout.addWidget(review_label)
+            # Store reference based on category
+            if category == "Multiple":
+                self.multiple_review_label = review_label
+            elif category == "Need Review":
+                self.need_review_label = review_label
+        
+        parts_header_layout.addStretch()
+        left_layout.addLayout(parts_header_layout)
+        
+        # Parts list table
+        parts_table = QTableWidget()
+        if show_actions:
+            parts_table.setColumnCount(6)
+            parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI", "Action"])
+        else:
+            parts_table.setColumnCount(3)
+            parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status"])
+        
         # Set column resize modes
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Manufacturer
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Match Status
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Match Details
+        parts_header = parts_table.horizontalHeader()
+        parts_header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
+        parts_header.setSectionResizeMode(1, QHeaderView.Stretch)  # MFG
+        parts_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Status
+        if show_actions:
+            parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
+            parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
+            parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
+        
+        parts_table.setSelectionBehavior(QTableWidget.SelectRows)
+        parts_table.setSelectionMode(QTableWidget.SingleSelection)
+        parts_table.itemSelectionChanged.connect(self.on_part_selected)
+        left_layout.addWidget(parts_table)
+        
+        # Store table reference based on category
+        if category == "Found":
+            self.found_table = parts_table
+        elif category == "Multiple":
+            self.multiple_table = parts_table
+        elif category == "Need Review":
+            self.need_review_table = parts_table
+        elif category == "None":
+            self.none_table = parts_table
+        elif category == "Errors":
+            self.errors_table = parts_table
+        
+        # Bulk actions (only for interactive categories)
+        if show_actions:
+            bulk_layout = QHBoxLayout()
+            auto_select_btn = QPushButton("Auto-Select Highest Similarity")
+            auto_select_btn.clicked.connect(lambda: self.auto_select_highest_for_category(category))
+            auto_select_btn.setEnabled(False)
+            auto_select_btn.setToolTip(
+                "Automatically selects the best match based on string similarity.\n\n"
+                "How it works:\n"
+                "• Uses difflib to compare part numbers character-by-character\n"
+                "• Calculates similarity score (0-100%) for each match\n"
+                "• Selects the match with highest similarity score\n"
+                "• Fast and deterministic (no AI/API calls)\n"
+                "• Best for exact or near-exact part number matches"
+            )
+            bulk_layout.addWidget(auto_select_btn)
+            
+            ai_suggest_btn = QPushButton("🤖 AI Suggest Best Matches")
+            ai_suggest_btn.clicked.connect(lambda: self.ai_suggest_matches_for_category(category))
+            ai_suggest_btn.setEnabled(False)
+            ai_suggest_btn.setToolTip(
+                "Uses Claude AI to intelligently suggest the best match.\n\n"
+                "How it works:\n"
+                "• Analyzes part number, manufacturer, and description\n"
+                "• Considers manufacturer acquisitions (e.g., EPCOS → TDK)\n"
+                "• Understands context and component semantics\n"
+                "• Provides confidence score with reasoning\n"
+                "• Skips parts with only 1 match\n"
+                "• Skips already AI-processed parts\n"
+                "• Best for complex matches requiring context understanding"
+            )
+            bulk_layout.addWidget(ai_suggest_btn)
+            
+            left_layout.addLayout(bulk_layout)
+            
+            # Store button references
+            if category == "Multiple":
+                self.multiple_auto_select_btn = auto_select_btn
+                self.multiple_ai_suggest_btn = ai_suggest_btn
+            elif category == "Need Review":
+                self.need_review_auto_select_btn = auto_select_btn
+                self.need_review_ai_suggest_btn = ai_suggest_btn
+            
+            # AI Status summary (only on Multiple tab for backward compatibility)
+            if category == "Multiple":
+                self.csv_summary = QLabel("")
+                self.csv_summary.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px;")
+                self.csv_summary.setWordWrap(True)
+                left_layout.addWidget(self.csv_summary)
+        
+        # Right panel: Match options (only for interactive categories)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        
+        if show_actions:
+            right_layout.addWidget(QLabel("Available Matches:"))
+            
+            matches_table = QTableWidget()
+            matches_table.setColumnCount(5)
+            matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+            matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
+            
+            # Set column resize modes
+            header = matches_table.horizontalHeader()
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select
+            header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number
+            header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer
+            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Similarity
+            header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score
+            
+            right_layout.addWidget(matches_table)
+            
+            # Store matches table reference
+            if category == "Multiple":
+                self.multiple_matches_table = matches_table
+            elif category == "Need Review":
+                self.need_review_matches_table = matches_table
+            
+            none_correct_checkbox = QCheckBox("None of these are correct (keep original)")
+            right_layout.addWidget(none_correct_checkbox)
+            
+            # Store checkbox reference
+            if category == "Multiple":
+                self.multiple_none_correct_checkbox = none_correct_checkbox
+            elif category == "Need Review":
+                self.need_review_none_correct_checkbox = none_correct_checkbox
+            
+            # Save button for selections
+            save_layout = QHBoxLayout()
+            save_selection_btn = QPushButton("💾 Save Selection")
+            save_selection_btn.clicked.connect(self.save_current_selection)
+            save_selection_btn.setEnabled(False)
+            save_selection_btn.setToolTip("Save your current match selection for this part")
+            save_layout.addWidget(save_selection_btn)
+            save_layout.addStretch()
+            right_layout.addLayout(save_layout)
+            
+            # Store save button reference
+            if category == "Multiple":
+                self.multiple_save_btn = save_selection_btn
+            elif category == "Need Review":
+                self.need_review_save_btn = save_selection_btn
+        else:
+            # For non-interactive tabs, just show a message
+            info_label = QLabel(f"This tab shows parts with '{category}' status.\nNo action required.")
+            info_label.setWordWrap(True)
+            info_label.setStyleSheet("padding: 20px; color: #666;")
+            right_layout.addWidget(info_label)
+            right_layout.addStretch()
+        
+        # Add panels to splitter
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([400, 600])
+        
+        tab_layout.addWidget(splitter)
+        return tab_widget
 
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setSelectionMode(QTableWidget.SingleSelection)
-        table.setAlternatingRowColors(True)
-        table.setSortingEnabled(True)  # Enable sorting
+    # Compatibility properties - these point to the Multiple tab widgets by default
+    # since that's where most of the interactive functionality is
+    @property
+    def parts_list(self):
+        """For backward compatibility - points to multiple_table"""
+        return self.multiple_table
+    
+    @property
+    def matches_table(self):
+        """For backward compatibility - points to multiple_matches_table"""
+        return self.multiple_matches_table
+    
+    @property
+    def auto_select_btn(self):
+        """For backward compatibility - points to multiple_auto_select_btn"""
+        return self.multiple_auto_select_btn
+    
+    @property
+    def ai_suggest_btn(self):
+        """For backward compatibility - points to multiple_ai_suggest_btn"""
+        return self.multiple_ai_suggest_btn
+    
+    @property
+    def save_selection_btn(self):
+        """For backward compatibility - points to multiple_save_btn"""
+        return self.multiple_save_btn
+    
+    @property
+    def none_correct_checkbox(self):
+        """For backward compatibility - points to multiple_none_correct_checkbox"""
+        return self.multiple_none_correct_checkbox
+    
+    @property
+    def review_count_label(self):
+        """For backward compatibility - points to multiple_review_label"""
+        return self.multiple_review_label
 
-        return table
+    def populate_category_table(self, table, parts_list, show_actions=True):
+        """Populate a category table with parts"""
+        print(f"DEBUG populate_category_table: {len(parts_list)} parts, show_actions={show_actions}")
+        table.setRowCount(len(parts_list))
 
-    def create_review_section_widget_OLD(self):
+        for row_idx, part in enumerate(parts_list):
+            # Ensure part is a dict and has required keys
+            if not isinstance(part, dict):
+                print(f"ERROR: Part at row {row_idx} is not a dict: {type(part)} - {part}")
+                continue
+            
+            # Ensure matches key exists
+            if 'matches' not in part:
+                part['matches'] = []
+            
+            if row_idx < 5:  # Log first 5
+                print(f"DEBUG: Adding row {row_idx}: {part.get('PartNumber', 'N/A')} | {part.get('ManufacturerName', 'N/A')} | {part.get('MatchStatus', 'N/A')}")
+
+            table.setItem(row_idx, 0, QTableWidgetItem(part.get('PartNumber', 'N/A')))
+            table.setItem(row_idx, 1, QTableWidgetItem(part.get('ManufacturerName', 'N/A')))
+            table.setItem(row_idx, 2, QTableWidgetItem(part.get('MatchStatus', 'N/A')))
+
+            if show_actions:
+                # Reviewed indicator
+                reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
+                reviewed_item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row_idx, 3, reviewed_item)
+
+                # AI indicator
+                ai_status = ""
+                if part.get('ai_processed'):
+                    ai_status = "🤖"
+                elif part.get('ai_processing'):
+                    ai_status = "⏳"
+                ai_item = QTableWidgetItem(ai_status)
+                ai_item.setTextAlignment(Qt.AlignCenter)
+                table.setItem(row_idx, 4, ai_item)
+
+                # Action button - AI Suggest (only if >1 match and not already processed)
+                matches = part.get('matches', [])
+                if len(matches) > 1 and not part.get('ai_processed'):
+                    ai_btn = QPushButton("🤖 AI")
+                    ai_btn.setToolTip("Use AI to suggest best match for this part")
+                    ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
+                    table.setCellWidget(row_idx, 5, ai_btn)
+
+        print(f"DEBUG: Table populated with {table.rowCount()} rows")
+
+    def auto_select_highest_for_category(self, category):
+        """Auto-select highest similarity matches for a specific category"""
+        if category == "Multiple":
+            parts_list = self.multiple_parts
+        elif category == "Need Review":
+            parts_list = self.need_review_parts
+        else:
+            return
+        
+        from difflib import SequenceMatcher
+        selected_count = 0
+        
+        for part in parts_list:
+            if not part['matches']:
+                continue
+
+            original_pn = part['PartNumber'].upper().strip()
+            original_mfg = part['ManufacturerName'].upper().strip()
+            best_match = None
+            best_similarity = 0.0
+
+            # Calculate similarity for each match
+            for match in part['matches']:
+                # Parse match: "PartNumber@Manufacturer"
+                if '@' in match:
+                    match_pn, match_mfg = match.split('@', 1)
+                else:
+                    match_pn = match
+                    match_mfg = ""
+
+                match_pn = match_pn.upper().strip()
+                match_mfg = match_mfg.upper().strip()
+
+                # Calculate combined similarity (60% part number, 40% manufacturer)
+                pn_similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+                mfg_similarity = SequenceMatcher(None, original_mfg, match_mfg).ratio() if match_mfg else 0
+
+                # Weighted average
+                combined_similarity = (pn_similarity * 0.6) + (mfg_similarity * 0.4)
+
+                if combined_similarity > best_similarity:
+                    best_similarity = combined_similarity
+                    best_match = match
+
+            if best_match:
+                part['selected_match'] = best_match
+                part['auto_selected'] = True
+                part['similarity_score'] = best_similarity
+                selected_count += 1
+
+        QMessageBox.information(self, "Auto-Select Complete",
+                              f"Selected best match for {selected_count} parts in {category} category using similarity analysis.")
+
+        # Refresh the appropriate table
+        if category == "Multiple":
+            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+        elif category == "Need Review":
+            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+
+    def ai_suggest_matches_for_category(self, category):
+        """Use AI to suggest best matches for all unprocessed parts in a specific category"""
+        if category == "Multiple":
+            parts_list = self.multiple_parts
+        elif category == "Need Review":
+            parts_list = self.need_review_parts
+        else:
+            return
+        
+        # Get API key
+        start_page = self.wizard().page(0)
+        self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available",
+                              "Claude AI is not available. Please provide an API key.")
+            return
+
+        # Get combined data from previous step
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            self.combined_data = xml_gen_page.combined_data
+
+        # Filter out already processed parts
+        unprocessed_parts = [part for part in parts_list if not part.get('ai_processed')]
+
+        if not unprocessed_parts:
+            QMessageBox.information(self, "All Processed",
+                                  f"All parts in {category} have already been processed by AI.")
+            return
+
+        # Disable buttons
+        if category == "Multiple":
+            self.multiple_auto_select_btn.setEnabled(False)
+            self.multiple_ai_suggest_btn.setEnabled(False)
+        elif category == "Need Review":
+            self.need_review_auto_select_btn.setEnabled(False)
+            self.need_review_ai_suggest_btn.setEnabled(False)
+
+        # Mark unprocessed parts as processing
+        for part in unprocessed_parts:
+            part['ai_processing'] = True
+
+        # Refresh the appropriate table
+        if category == "Multiple":
+            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+        elif category == "Need Review":
+            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+
+        # Start AI thread with only unprocessed parts
+        self.ai_match_thread = PartialMatchAIThread(
+            self.api_key,
+            unprocessed_parts,
+            self.combined_data
+        )
+        self.ai_match_thread.progress.connect(self.on_ai_match_progress)
+        self.ai_match_thread.part_analyzed.connect(self.on_part_analyzed)
+        self.ai_match_thread.finished.connect(lambda suggestions: self.on_ai_match_finished_for_category(suggestions, category))
+        self.ai_match_thread.error.connect(self.on_ai_match_error)
+        self.ai_match_thread.start()
+
+    def on_ai_match_finished_for_category(self, suggestions, category):
+        """Handle AI completion for category-specific processing"""
+        self.csv_summary.setText(f"✓ AI analysis complete for {category}")
+        self.csv_summary.setStyleSheet("padding: 5px; background-color: #d4edda; border-radius: 3px;")
+
+        # Re-enable buttons
+        if category == "Multiple":
+            self.multiple_auto_select_btn.setEnabled(True)
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            self.multiple_ai_suggest_btn.setEnabled(bool(api_key and ANTHROPIC_AVAILABLE))
+            # Refresh table
+            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+        elif category == "Need Review":
+            self.need_review_auto_select_btn.setEnabled(True)
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            self.need_review_ai_suggest_btn.setEnabled(bool(api_key and ANTHROPIC_AVAILABLE))
+            # Refresh table
+            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+
+        # Show summary
+        processed_count = sum(1 for part in (self.multiple_parts + self.need_review_parts) if part.get('ai_processed'))
+        QMessageBox.information(self, "AI Analysis Complete",
+                              f"AI has analyzed {len(suggestions)} parts in {category}.\n"
+                              f"Total AI-processed parts: {processed_count}")
+
+    def create_review_section_widget_OLD_REMOVED(self):
         """Section 2: Review Partial Matches"""
         review_group = QGroupBox("2. Review Partial Matches")
         review_layout = QHBoxLayout()
@@ -4292,11 +4662,6 @@ class SupplyFrameReviewPage(QWizardPage):
         self.apply_changes_btn.clicked.connect(self.apply_changes)
         self.apply_changes_btn.setEnabled(False)
         actions_layout.addWidget(self.apply_changes_btn)
-
-        self.regenerate_xml_btn = QPushButton("Regenerate XML Files")
-        self.regenerate_xml_btn.clicked.connect(self.regenerate_xml)
-        self.regenerate_xml_btn.setEnabled(False)
-        actions_layout.addWidget(self.regenerate_xml_btn)
 
         actions_layout.addStretch()
         return actions_widget
@@ -4540,15 +4905,39 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def on_part_selected(self):
         """Handle part selection - show matches"""
-        selected_rows = self.parts_list.selectedIndexes()
-        if not selected_rows:
+        # Determine which table triggered the selection
+        sender = self.sender()
+        
+        # Default to checking all tables
+        parts_list = None
+        matches_table = None
+        parts_data = None
+        
+        # Check which table has a selection
+        if hasattr(self, 'multiple_table') and self.multiple_table.selectedIndexes():
+            selected_rows = self.multiple_table.selectedIndexes()
+            parts_list = self.multiple_table
+            matches_table = self.multiple_matches_table
+            parts_data = self.multiple_parts
+        elif hasattr(self, 'need_review_table') and self.need_review_table.selectedIndexes():
+            selected_rows = self.need_review_table.selectedIndexes()
+            parts_list = self.need_review_table
+            matches_table = self.need_review_matches_table
+            parts_data = self.need_review_parts
+        else:
+            return
+        
+        if not selected_rows or not parts_data:
             return
 
         row_idx = selected_rows[0].row()
-        part = self.parts_needing_review[row_idx]
+        if row_idx >= len(parts_data):
+            return
+            
+        part = parts_data[row_idx]
 
         # Populate matches table
-        self.matches_table.setRowCount(len(part['matches']))
+        matches_table.setRowCount(len(part['matches']))
 
         # Calculate similarity scores for confidence
         from difflib import SequenceMatcher
@@ -4575,9 +4964,9 @@ class SupplyFrameReviewPage(QWizardPage):
             radio_layout.setAlignment(Qt.AlignCenter)
             radio_layout.setContentsMargins(0, 0, 0, 0)
 
-            self.matches_table.setCellWidget(match_idx, 0, radio_widget)
-            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
-            self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
+            matches_table.setCellWidget(match_idx, 0, radio_widget)
+            matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
+            matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
 
             # Calculate similarity score
             match_pn = pn.upper().strip()
@@ -4586,7 +4975,7 @@ class SupplyFrameReviewPage(QWizardPage):
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
             similarity_item.setToolTip("String similarity using difflib (part number matching)")
-            self.matches_table.setItem(match_idx, 3, similarity_item)
+            matches_table.setItem(match_idx, 3, similarity_item)
 
             # AI Score - only show if AI has processed this part
             ai_score_item = QTableWidgetItem("")
@@ -4598,14 +4987,20 @@ class SupplyFrameReviewPage(QWizardPage):
                     ai_conf = ai_scores[match]
                     ai_score_item.setText(f"{ai_conf}%")
                     ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
-            self.matches_table.setItem(match_idx, 4, ai_score_item)
+            matches_table.setItem(match_idx, 4, ai_score_item)
 
     def on_match_selected(self, part, match, checked):
         """Handle match selection"""
         if checked:
             part['selected_match'] = match
-            self.none_correct_checkbox.setChecked(False)
-            self.save_selection_btn.setEnabled(True)
+            
+            # Determine which tab's widgets to update
+            if hasattr(self, 'multiple_parts') and part in self.multiple_parts:
+                self.multiple_none_correct_checkbox.setChecked(False)
+                self.multiple_save_btn.setEnabled(True)
+            elif hasattr(self, 'need_review_parts') and part in self.need_review_parts:
+                self.need_review_none_correct_checkbox.setChecked(False)
+                self.need_review_save_btn.setEnabled(True)
 
     def refresh_matches_display(self):
         """Refresh the matches table for the currently selected part"""
@@ -5217,10 +5612,7 @@ class SupplyFrameReviewPage(QWizardPage):
             # Step 3: Populate comparison tables
             self.populate_comparison_tables(old_data, new_data)
 
-            # Step 4: Enable XML regeneration button
-            self.regenerate_xml_btn.setEnabled(True)
-
-            # Step 5: Store the new data for XML generation
+            # Step 4: Store the new data for later use
             self.updated_data = new_data
 
             # Show summary
@@ -5228,7 +5620,7 @@ class SupplyFrameReviewPage(QWizardPage):
                                   f"Changes applied successfully!\n\n"
                                   f"• {matches_applied} parts updated from SupplyFrame matches\n"
                                   f"• {normalizations_applied} manufacturer names normalized\n\n"
-                                  f"Review the comparison below and regenerate XML when ready.")
+                                  f"Review the comparison below.")
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to apply changes:\n{str(e)}")

@@ -3107,12 +3107,19 @@ class PASAPIClient:
             return {'error': str(e)}, 'Error'
 
     def _perform_pas_search(self, manufacturer_pn, manufacturer):
-        """Perform the actual PAS API search"""
+        """
+        Perform PAS API parametric search (matches Java AggregationServiceWebCall.searchExactMatchSF)
+
+        Uses parametric/search endpoint with property-based filters instead of free-text search.
+        This provides more accurate results by filtering on specific properties:
+        - 6230417e = Manufacturer Name
+        - d8ac8dcc = Manufacturer Part Number
+        """
         try:
             token = self._get_access_token()
 
-            # Search endpoint
-            endpoint = '/api/v2/search-providers/44/2/free-text/search'
+            # Parametric search endpoint (not free-text!)
+            endpoint = '/api/v2/search-providers/44/2/parametric/search'
 
             headers = {
                 'Authorization': f'Bearer {token}',
@@ -3123,31 +3130,56 @@ class PASAPIClient:
                 'X-Siemens-Ebs-User-Currency': 'USD'
             }
 
-            request_body = {
-                "ftsParameters": {
-                    "match": {
-                        "term": manufacturer_pn
+            # Build filter based on whether manufacturer is provided
+            if manufacturer and manufacturer.strip():
+                # Two-parameter search: AND filter for both Part Number and Manufacturer
+                # Matches Java line 510 in AggregationServiceWebCall.java
+                search_filter = {
+                    "__logicalOperator__": "And",
+                    "__expression__": "LogicalExpression",
+                    "left": {
+                        "__valueOperator__": "SmartMatch",
+                        "__expression__": "ValueExpression",
+                        "propertyId": "6230417e",  # Manufacturer Name
+                        "term": manufacturer
                     },
-                    "paging": {
-                        "requestedPageSize": 20
+                    "right": {
+                        "__valueOperator__": "SmartMatch",
+                        "__expression__": "ValueExpression",
+                        "propertyId": "d8ac8dcc",  # Manufacturer Part Number
+                        "term": manufacturer_pn
                     }
+                }
+                page_size = 10  # Java uses 10 for two-parameter search
+            else:
+                # One-parameter search: filter by Part Number only
+                # Matches Java line 550 in AggregationServiceWebCall.java
+                search_filter = {
+                    "__valueOperator__": "SmartMatch",
+                    "__expression__": "ValueExpression",
+                    "propertyId": "d8ac8dcc",  # Manufacturer Part Number
+                    "term": manufacturer_pn
+                }
+                page_size = 50  # Java uses 50 for one-parameter search
+
+            request_body = {
+                "searchParameters": {
+                    "partClassId": "76f2225d",  # Root part class
+                    "customParameters": {},
+                    "outputs": ["6230417e", "d8ac8dcc", "750a45c8", "2a2b1476", "e1aa6f26"],
+                    "sort": [],
+                    "paging": {
+                        "requestedPageSize": page_size
+                    },
+                    "filter": search_filter
                 }
             }
 
+            # Collect all results (handle pagination like Java does)
+            all_results = []
             url = f"{self.pas_url}{endpoint}"
-            response = requests.post(
-                url,
-                headers=headers,
-                json=request_body,
-                timeout=60
-            )
 
-            if response.status_code == 401:
-                # Token expired, retry once
-                self.access_token = None
-                self.token_expires_at = None
-                token = self._get_access_token()
-                headers['Authorization'] = f'Bearer {token}'
+            while True:
                 response = requests.post(
                     url,
                     headers=headers,
@@ -3155,22 +3187,47 @@ class PASAPIClient:
                     timeout=60
                 )
 
-            response.raise_for_status()
-            result = response.json()
+                if response.status_code == 401:
+                    # Token expired, retry once
+                    self.access_token = None
+                    self.token_expires_at = None
+                    token = self._get_access_token()
+                    headers['Authorization'] = f'Bearer {token}'
+                    response = requests.post(
+                        url,
+                        headers=headers,
+                        json=request_body,
+                        timeout=60
+                    )
 
-            if not result.get('success', False):
-                error = result.get('error', {})
-                error_msg = error.get('message', 'Unknown error')
-                return {'error': error_msg}
+                response.raise_for_status()
+                result = response.json()
 
-            # Return results list
-            if result.get('result') and result['result'].get('results'):
-                return {
-                    'results': result['result']['results'],
-                    'totalCount': result['result'].get('totalCount', 0)
+                if not result.get('success', False):
+                    error = result.get('error', {})
+                    error_msg = error.get('message', 'Unknown error')
+                    return {'error': error_msg}
+
+                # Add results from this page
+                if result.get('result') and result['result'].get('results'):
+                    all_results.extend(result['result']['results'])
+
+                # Check for next page (Java fetches ALL pages)
+                next_page_token = result.get('result', {}).get('nextPageToken')
+                if not next_page_token:
+                    break
+
+                # Prepare next page request
+                endpoint = '/api/v2/search-providers/44/2/parametric/get-next-page'
+                url = f"{self.pas_url}{endpoint}"
+                request_body = {
+                    "pageToken": next_page_token
                 }
-            else:
-                return {'results': []}
+
+            return {
+                'results': all_results,
+                'totalCount': len(all_results)
+            }
 
         except Exception as e:
             return {'error': str(e)}

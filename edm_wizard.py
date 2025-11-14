@@ -1959,6 +1959,7 @@ class PASSearchPage(QWizardPage):
         self.results_table.setAlternatingRowColors(True)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.results_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)  # Make read-only
 
         results_layout.addWidget(self.results_table)
         results_group.setLayout(results_layout)

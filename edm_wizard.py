@@ -3192,7 +3192,8 @@ class PASAPIClient:
         matches = []
 
         # Step 1: Search with both PartNumber and ManufacturerName
-        if edm_mfg and edm_mfg not in ['', 'Unknown']:
+        # Skip manufacturer matching if it's a placeholder value (TBD, Unknown, or empty)
+        if edm_mfg and edm_mfg not in ['', 'Unknown', 'TBD']:
             # Step 1a: Exact match on both PartNumber and ManufacturerName
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
@@ -3260,8 +3261,8 @@ class PASAPIClient:
                     # Multiple matches - take first one
                     return self._format_match_result([matches[0]], 'Found')
 
-        # Step 2: Search by PartNumber only (if manufacturer empty/Unknown or no matches found)
-        if not edm_mfg or edm_mfg in ['', 'Unknown'] or len(matches) == 0:
+        # Step 2: Search by PartNumber only (if manufacturer is placeholder/empty or no matches found)
+        if not edm_mfg or edm_mfg in ['', 'Unknown', 'TBD'] or len(matches) == 0:
             matches.clear()
 
             # Exact PartNumber match

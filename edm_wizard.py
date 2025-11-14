@@ -3219,24 +3219,30 @@ class PASAPIClient:
                 return self._format_match_result(matches, 'Found')
 
             # 1c. Alphanumeric-only match (Java lines 366-415)
+            # MUST also check manufacturer - we're still in Step 1 (with manufacturer)
             matches.clear()
             edm_pn_alpha = pattern.sub('', edm_pn)
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
                 pas_pn = part.get('manufacturerPartNumber', '')
+                pas_mfg = part.get('manufacturerName', '')
                 pas_pn_alpha = pattern.sub('', pas_pn)
-                if pas_pn_alpha == edm_pn_alpha:
+                # Check both part number AND manufacturer (partial match OK)
+                if pas_pn_alpha == edm_pn_alpha and (pas_mfg == edm_mfg or edm_mfg in pas_mfg):
                     matches.append(part_data)
 
             if len(matches) == 0:
                 # 1d. Leading zero suppression (Java lines 378-415)
+                # MUST also check manufacturer - we're still in Step 1 (with manufacturer)
                 edm_pn_no_zeros = edm_pn_alpha.lstrip('0')
                 for part_data in parts:
                     part = part_data.get('searchProviderPart', {})
                     pas_pn = part.get('manufacturerPartNumber', '')
+                    pas_mfg = part.get('manufacturerName', '')
                     pas_pn_alpha = pattern.sub('', pas_pn)
                     pas_pn_no_zeros = pas_pn_alpha.lstrip('0')
-                    if pas_pn_no_zeros == edm_pn_no_zeros:
+                    # Check both part number AND manufacturer (partial match OK)
+                    if pas_pn_no_zeros == edm_pn_no_zeros and (pas_mfg == edm_mfg or edm_mfg in pas_mfg):
                         matches.append(part_data)
 
                 if len(matches) == 1:

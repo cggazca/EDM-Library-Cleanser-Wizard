@@ -3177,29 +3177,25 @@ class PASAPIClient:
 
     def _apply_searchandassign_matching(self, edm_pn, edm_mfg, parts):
         """
-        Apply the exact SearchAndAssign matching algorithm from Java code
+        Apply the exact SearchAndAssign matching algorithm from Java code (SearchAndAssignApp.java lines 291-540)
 
-        Algorithm steps (matching SearchAndAssignApp.java):
-        1. Search by PartNumber + ManufacturerName
-           a. Exact match on both
-           b. Partial match on ManufacturerName (contains)
-           c. Alphanumeric-only match
-           d. Leading zero suppression match
-        2. If no match and manufacturer is empty/Unknown, search by PartNumber only
+        Mirrors Java implementation precisely:
+        - If manufacturer is NOT empty/Unknown: Try exact + partial + alphanumeric + zero suppression WITH manufacturer validation
+        - If no match OR manufacturer IS empty/Unknown: Search by PartNumber only (returns "Need user review" for single matches)
         """
         import re
 
+        pattern = re.compile(r'[^A-Za-z0-9]')
         matches = []
+        result_record = None
 
-        # Step 1: Search with both PartNumber and ManufacturerName
-        # Skip manufacturer matching if it's a placeholder value (TBD, Unknown, or empty)
-        if edm_mfg and edm_mfg not in ['', 'Unknown', 'TBD']:
-            # Step 1a: Exact match on both PartNumber and ManufacturerName
+        # ========== STEP 1: Search with Manufacturer (if provided and not empty/Unknown) ==========
+        if edm_mfg and edm_mfg not in ['', 'Unknown']:
+            # 1a. Exact match on BOTH PartNumber AND ManufacturerName (Java lines 317-338)
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
                 pas_pn = part.get('manufacturerPartNumber', '')
                 pas_mfg = part.get('manufacturerName', '')
-
                 if pas_pn == edm_pn and pas_mfg == edm_mfg:
                     matches.append(part_data)
 
@@ -3208,13 +3204,12 @@ class PASAPIClient:
             elif len(matches) == 1:
                 return self._format_match_result(matches, 'Found')
 
-            # Step 1b: Partial match on ManufacturerName (PN exact, MFG contains)
+            # 1b. Partial match on ManufacturerName (Java lines 341-364)
             matches.clear()
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
                 pas_pn = part.get('manufacturerPartNumber', '')
                 pas_mfg = part.get('manufacturerName', '')
-
                 if pas_pn == edm_pn and edm_mfg in pas_mfg:
                     matches.append(part_data)
 
@@ -3223,103 +3218,102 @@ class PASAPIClient:
             elif len(matches) == 1:
                 return self._format_match_result(matches, 'Found')
 
-            # Step 1c: Alphanumeric-only match (strip special characters)
+            # 1c. Alphanumeric-only match (Java lines 366-415)
             matches.clear()
-            pattern = re.compile(r'[^A-Za-z0-9]')
             edm_pn_alpha = pattern.sub('', edm_pn)
-
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
                 pas_pn = part.get('manufacturerPartNumber', '')
                 pas_pn_alpha = pattern.sub('', pas_pn)
-
                 if pas_pn_alpha == edm_pn_alpha:
                     matches.append(part_data)
 
             if len(matches) == 0:
-                # Step 1d: Leading zero suppression
+                # 1d. Leading zero suppression (Java lines 378-415)
                 edm_pn_no_zeros = edm_pn_alpha.lstrip('0')
-
                 for part_data in parts:
                     part = part_data.get('searchProviderPart', {})
                     pas_pn = part.get('manufacturerPartNumber', '')
                     pas_pn_alpha = pattern.sub('', pas_pn)
                     pas_pn_no_zeros = pas_pn_alpha.lstrip('0')
-
                     if pas_pn_no_zeros == edm_pn_no_zeros:
                         matches.append(part_data)
 
                 if len(matches) == 1:
                     return self._format_match_result(matches, 'Found')
                 elif len(matches) > 1:
-                    # Multiple matches - take first one
                     return self._format_match_result([matches[0]], 'Found')
             else:
-                if len(matches) == 1:
-                    return self._format_match_result(matches, 'Found')
-                else:
-                    # Multiple matches - take first one
+                if len(matches) >= 1:
                     return self._format_match_result([matches[0]], 'Found')
 
-        # Step 2: Search by PartNumber only (if manufacturer is placeholder/empty or no matches found)
-        if not edm_mfg or edm_mfg in ['', 'Unknown', 'TBD'] or len(matches) == 0:
+        # ========== STEP 2: Search by PartNumber only (Java lines 419-540) ==========
+        # Triggered if: manufacturer is empty/Unknown OR no matches found in Step 1
+        if result_record is None and (not edm_mfg or edm_mfg in ['', 'Unknown'] or len(matches) == 0):
             matches.clear()
+            all_results = list(parts)  # Keep reference to all results for fallback
 
-            # Exact PartNumber match
+            if len(parts) == 0:
+                return {'matches': []}, 'None'
+
+            # Special case: If exactly 1 result from PAS search (Java lines 433-442)
+            if len(parts) == 1:
+                return self._format_match_result(parts, 'Need user review')
+
+            # Multiple results from PAS - try to narrow down by PartNumber (Java lines 444-540)
+            # 2a. Exact PartNumber match (Java lines 447-448)
             for part_data in parts:
                 part = part_data.get('searchProviderPart', {})
                 pas_pn = part.get('manufacturerPartNumber', '')
-
                 if pas_pn == edm_pn:
                     matches.append(part_data)
 
             if len(matches) == 0:
-                # Try alphanumeric-only
-                pattern = re.compile(r'[^A-Za-z0-9]')
+                # 2b. Alphanumeric-only match (Java lines 451-521)
                 edm_pn_alpha = pattern.sub('', edm_pn)
-
                 for part_data in parts:
                     part = part_data.get('searchProviderPart', {})
                     pas_pn = part.get('manufacturerPartNumber', '')
                     pas_pn_alpha = pattern.sub('', pas_pn)
-
                     if pas_pn_alpha == edm_pn_alpha:
                         matches.append(part_data)
 
                 if len(matches) == 0:
-                    # Try leading zero suppression
+                    # 2c. Leading zero suppression (Java lines 463-521)
                     edm_pn_no_zeros = edm_pn_alpha.lstrip('0')
-
                     for part_data in parts:
                         part = part_data.get('searchProviderPart', {})
                         pas_pn = part.get('manufacturerPartNumber', '')
                         pas_pn_alpha = pattern.sub('', pas_pn)
                         pas_pn_no_zeros = pas_pn_alpha.lstrip('0')
-
                         if pas_pn_no_zeros == edm_pn_no_zeros:
                             matches.append(part_data)
 
                     if len(matches) == 0:
-                        # No matches found at all
-                        return {'matches': []}, 'None'
+                        # No matches - return all as Multiple (Java lines 474-483)
+                        return self._format_match_result(all_results, 'Multiple')
                     elif len(matches) == 1:
+                        # Java line 487
                         return self._format_match_result(matches, 'Need user review')
                     else:
-                        # Multiple matches - take first one
+                        # Multiple matches - take first (Java lines 494-499)
                         return self._format_match_result([matches[0]], 'Found')
                 else:
                     if len(matches) == 1:
+                        # Java line 503
                         return self._format_match_result(matches, 'Need user review')
-                    else:
-                        # Multiple matches - take first one
-                        return self._format_match_result([matches[0]], 'Found')
+                    elif len(matches) > 1:
+                        # Java lines 511-519
+                        return self._format_match_result(matches, 'Multiple')
             else:
                 if len(matches) == 1:
+                    # Java line 525
                     return self._format_match_result(matches, 'Need user review')
-                else:
+                elif len(matches) > 1:
+                    # Java lines 532-540 - Multiple exact matches
                     return self._format_match_result(matches, 'Multiple')
 
-        # No matches found
+        # No matches found (fallback)
         return {'matches': []}, 'None'
 
     def _format_match_result(self, part_data_list, match_type):

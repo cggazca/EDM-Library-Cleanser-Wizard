@@ -1,0 +1,6 @@
+﻿{
+  "scopes": [
+    "sws.icarus.api.read"
+  ],
+  "samAuthEndpoint": "https://samauth.us-east-1.sws.siemens.com"
+}

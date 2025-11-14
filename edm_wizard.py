@@ -2137,19 +2137,16 @@ class SupplyFrameReviewPage(QWizardPage):
         self.csv_group = self.create_csv_section_widget()
         main_splitter.addWidget(self.csv_group)
 
-        # Section 2: Review Partial Matches (collapsed by default)
+        # Section 2: Review Partial Matches
         self.review_group = self.create_review_section_widget()
-        self.review_group.setChecked(False)
         main_splitter.addWidget(self.review_group)
 
-        # Section 3: Manufacturer Normalization (collapsed by default)
+        # Section 3: Manufacturer Normalization
         self.norm_group = self.create_normalization_section_widget()
-        self.norm_group.setChecked(False)
         main_splitter.addWidget(self.norm_group)
 
-        # Section 4: Comparison View (collapsed by default)
+        # Section 4: Comparison View
         self.comp_group = self.create_comparison_section_widget()
-        self.comp_group.setChecked(False)
         main_splitter.addWidget(self.comp_group)
 
         # Section 5: Final Actions (always visible)
@@ -2172,7 +2169,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def create_csv_section_widget(self):
         """Section 1: Load SearchAndAssign CSV"""
-        csv_group = CollapsibleGroupBox("1. Load SearchAndAssign Results")
+        csv_group = QGroupBox("1. Load SearchAndAssign Results")
         csv_layout = QVBoxLayout()
 
         # File browser
@@ -2198,12 +2195,12 @@ class SupplyFrameReviewPage(QWizardPage):
         self.csv_summary.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px;")
         csv_layout.addWidget(self.csv_summary)
 
-        csv_group.setContentLayout(csv_layout)
+        csv_group.setLayout(csv_layout)
         return csv_group
 
     def create_review_section_widget(self):
         """Section 2: Review Partial Matches"""
-        review_group = CollapsibleGroupBox("2. Review Partial Matches")
+        review_group = QGroupBox("2. Review Partial Matches")
         review_layout = QHBoxLayout()
 
         # Left panel: Parts list
@@ -2314,12 +2311,12 @@ class SupplyFrameReviewPage(QWizardPage):
         splitter.setSizes([400, 600])
 
         review_layout.addWidget(splitter)
-        review_group.setContentLayout(review_layout)
+        review_group.setLayout(review_layout)
         return review_group
 
     def create_normalization_section_widget(self):
         """Section 3: Manufacturer Normalization"""
-        norm_group = CollapsibleGroupBox("3. Manufacturer Normalization")
+        norm_group = QGroupBox("3. Manufacturer Normalization")
         norm_layout = QVBoxLayout()
 
         # AI button
@@ -2353,12 +2350,12 @@ class SupplyFrameReviewPage(QWizardPage):
         save_norm_layout.addStretch()
         norm_layout.addLayout(save_norm_layout)
 
-        norm_group.setContentLayout(norm_layout)
+        norm_group.setLayout(norm_layout)
         return norm_group
 
     def create_comparison_section_widget(self):
         """Section 4: Comparison View"""
-        comp_group = CollapsibleGroupBox("4. Review Changes")
+        comp_group = QGroupBox("4. Review Changes")
         comp_layout = QVBoxLayout()
 
         # Summary
@@ -2401,7 +2398,7 @@ class SupplyFrameReviewPage(QWizardPage):
         tables_layout.addWidget(new_widget)
         comp_layout.addLayout(tables_layout)
 
-        comp_group.setContentLayout(comp_layout)
+        comp_group.setLayout(comp_layout)
         return comp_group
 
     def create_actions_section_widget(self):
@@ -2551,11 +2548,6 @@ class SupplyFrameReviewPage(QWizardPage):
             self.ai_suggest_btn.setEnabled(len(self.parts_needing_review) > 0)
             self.ai_normalize_btn.setEnabled(True)
             self.apply_changes_btn.setEnabled(True)
-
-            # Auto-expand relevant sections
-            if len(self.parts_needing_review) > 0:
-                self.review_group.setChecked(True)  # Expand review section if there are parts to review
-            self.norm_group.setChecked(True)  # Expand normalization section
 
             QMessageBox.information(self, "CSV Loaded", f"Successfully loaded {total} parts from SearchAndAssign CSV.")
 
@@ -3148,18 +3140,25 @@ class SupplyFrameReviewPage(QWizardPage):
         all_mfgs = set()
         supplyframe_mfgs = set()
 
-        # From original data
+        # From original data (ALL manufacturers from Step 3)
         xml_gen_page = self.wizard().page(3)
         if hasattr(xml_gen_page, 'combined_data'):
             for row in xml_gen_page.combined_data:
                 if row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
-        # From SearchAndAssign (SupplyFrame canonical names)
+        # From SearchAndAssign CSV - collect ALL manufacturers from ALL matches
+        # (Not just selected matches, but all possible matches from SupplyFrame)
         for part in self.search_assign_data:
-            if part.get('selected_match') and '@' in part['selected_match']:
-                _, mfg = part['selected_match'].split('@', 1)
-                supplyframe_mfgs.add(mfg)
+            # Add original manufacturer from the CSV
+            if part.get('ManufacturerName'):
+                all_mfgs.add(part['ManufacturerName'])
+
+            # Add ALL manufacturers from matches (not just selected)
+            for match in part.get('matches', []):
+                if '@' in match:
+                    _, mfg = match.split('@', 1)
+                    supplyframe_mfgs.add(mfg)
 
         self.norm_status.setText("🤖 Analyzing manufacturers...")
         self.norm_status.setStyleSheet("color: blue;")
@@ -3341,9 +3340,6 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Step 5: Store the new data for XML generation
             self.updated_data = new_data
-
-            # Auto-expand comparison section
-            self.comp_group.setChecked(True)
 
             # Show summary
             QMessageBox.information(self, "Changes Applied",

@@ -3381,10 +3381,10 @@ class SupplyFrameReviewPage(QWizardPage):
         self.setLayout(page_layout)
 
     def initializePage(self):
-        """Initialize by loading data from PASSearchPage"""
+        """Initialize by loading data from CSV file created by PASSearchPage"""
         pas_search_page = self.wizard().page(3)  # PASSearchPage is page 3
 
-        # Debug: Check if page exists
+        # Check if page exists
         if pas_search_page is None:
             QMessageBox.critical(
                 self,
@@ -3394,9 +3394,30 @@ class SupplyFrameReviewPage(QWizardPage):
             )
             return
 
-        # Get search results from PASSearchPage
-        if hasattr(pas_search_page, 'search_results') and pas_search_page.search_results is not None and len(pas_search_page.search_results) > 0:
-            self.search_results = pas_search_page.search_results
+        # Get CSV path from PASSearchPage
+        if not hasattr(pas_search_page, 'csv_output_path') or pas_search_page.csv_output_path is None:
+            QMessageBox.warning(
+                self,
+                "No Data",
+                "No search results CSV file found.\n\n"
+                "Please go back to Step 4 and complete the PAS search."
+            )
+            return
+
+        # Read results from CSV
+        csv_path = pas_search_page.csv_output_path
+        if not Path(csv_path).exists():
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"Search results CSV file not found:\n{csv_path}\n\n"
+                "Please go back to Step 4 and complete the PAS search."
+            )
+            return
+
+        try:
+            # Load search results from CSV
+            self.search_results = self.load_results_from_csv(csv_path)
 
             # Store original data for comparison later (convert DataFrame to list of dicts)
             if hasattr(pas_search_page, 'combined_data') and pas_search_page.combined_data is not None:
@@ -3410,22 +3431,51 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Load and display the results
             self.load_search_results()
-        else:
-            # Debug information
-            has_attr = hasattr(pas_search_page, 'search_results')
-            is_none = pas_search_page.search_results is None if has_attr else True
-            length = len(pas_search_page.search_results) if has_attr and not is_none else 0
 
-            QMessageBox.warning(
+        except Exception as e:
+            QMessageBox.critical(
                 self,
-                "No Data",
-                f"No search results available.\n\n"
-                f"Debug Info:\n"
-                f"- Has search_results attribute: {has_attr}\n"
-                f"- Is None: {is_none}\n"
-                f"- Length: {length}\n\n"
-                f"Please go back to Step 4 and complete the PAS search."
+                "Error Loading Results",
+                f"Failed to load search results from CSV:\n{str(e)}\n\n"
+                f"File: {csv_path}"
             )
+
+    def load_results_from_csv(self, csv_path):
+        """Load search results from CSV file"""
+        import csv
+        from collections import defaultdict
+
+        results = []
+
+        # Group rows by PartNumber+ManufacturerName (since multiple matches create multiple rows)
+        grouped = defaultdict(lambda: {'matches': []})
+
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                key = (row['PartNumber'], row['ManufacturerName'])
+
+                # First occurrence - set basic info
+                if not grouped[key]['matches'] and row['MatchValue(PartNumber@ManufacturerName)']:
+                    grouped[key]['PartNumber'] = row['PartNumber']
+                    grouped[key]['ManufacturerName'] = row['ManufacturerName']
+                    grouped[key]['MatchStatus'] = row['MatchStatus']
+
+                # Add match value if present
+                match_value = row['MatchValue(PartNumber@ManufacturerName)'].strip()
+                if match_value:
+                    grouped[key]['matches'].append(match_value)
+                elif not grouped[key]['matches']:
+                    # Empty match (for None/Error status)
+                    grouped[key]['PartNumber'] = row['PartNumber']
+                    grouped[key]['ManufacturerName'] = row['ManufacturerName']
+                    grouped[key]['MatchStatus'] = row['MatchStatus']
+
+        # Convert to list format
+        for data in grouped.values():
+            results.append(data)
+
+        return results
 
     def load_search_results(self):
         """Process and display search results"""

@@ -4935,15 +4935,24 @@ class SupplyFrameReviewPage(QWizardPage):
             return
             
         part = parts_data[row_idx]
-
+        
+        # Ensure part is a dict and has required keys
+        if not isinstance(part, dict):
+            print(f"ERROR on_part_selected: part is not a dict: {type(part)} - {part}")
+            return
+        
+        if 'matches' not in part:
+            part['matches'] = []
+        
         # Populate matches table
-        matches_table.setRowCount(len(part['matches']))
+        matches = part.get('matches', [])
+        matches_table.setRowCount(len(matches))
 
         # Calculate similarity scores for confidence
         from difflib import SequenceMatcher
-        original_pn = part['PartNumber'].upper().strip()
+        original_pn = part.get('PartNumber', '').upper().strip()
 
-        for match_idx, match in enumerate(part['matches']):
+        for match_idx, match in enumerate(matches):
             # Parse match: "PartNumber@Manufacturer"
             if '@' in match:
                 pn, mfg = match.split('@', 1)

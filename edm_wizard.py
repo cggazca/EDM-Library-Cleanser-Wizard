@@ -5345,60 +5345,85 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def on_part_analyzed(self, row_idx, result):
         """Handle real-time part analysis completion"""
-        if row_idx < len(self.parts_needing_review):
-            part = self.parts_needing_review[row_idx]
+        # Ensure result is a dict
+        if not isinstance(result, dict):
+            print(f"ERROR on_part_analyzed: result is not a dict: {type(result)} - {result}")
+            return
+        
+        # The row_idx from AI thread is relative to the unprocessed parts list
+        # We need to find the actual part in our categorized lists
+        # For now, we'll search through both Multiple and Need Review lists
+        part = None
+        part_number = result.get('part_number')  # Assuming AI thread provides this
+        
+        # Try to find the part in multiple_parts and need_review_parts
+        for p in self.multiple_parts + self.need_review_parts:
+            if isinstance(p, dict) and p.get('PartNumber') == part_number:
+                part = p
+                break
+        
+        # Fallback: try using row_idx on parts_needing_review if we have it
+        if part is None and row_idx < len(self.parts_needing_review):
+            potential_part = self.parts_needing_review[row_idx]
+            if isinstance(potential_part, dict):
+                part = potential_part
+        
+        if part is None or not isinstance(part, dict):
+            print(f"ERROR on_part_analyzed: Could not find part for row_idx {row_idx}")
+            return
 
-            # Clear processing flag
-            part['ai_processing'] = False
+        # Clear processing flag
+        part['ai_processing'] = False
 
-            if result.get('skipped'):
-                # Part was skipped (single match)
-                part['ai_processed'] = False
-            elif result.get('error'):
-                # AI failed for this part
-                part['ai_processed'] = False
-            else:
-                # AI successfully analyzed
-                part['ai_processed'] = True
+        if result.get('skipped'):
+            # Part was skipped (single match)
+            part['ai_processed'] = False
+        elif result.get('error'):
+            # AI failed for this part
+            part['ai_processed'] = False
+        else:
+            # AI successfully analyzed
+            part['ai_processed'] = True
 
-                # Store AI confidence score for the suggested match
-                idx = result.get('suggested_index')
-                confidence = result.get('confidence', 0)
+            # Store AI confidence score for the suggested match
+            idx = result.get('suggested_index')
+            confidence = result.get('confidence', 0)
 
-                # Create a dictionary to store AI scores for each match
-                # (For now, only the suggested match has an AI score)
-                if not part.get('ai_match_scores'):
-                    part['ai_match_scores'] = {}
+            # Create a dictionary to store AI scores for each match
+            # (For now, only the suggested match has an AI score)
+            if not part.get('ai_match_scores'):
+                part['ai_match_scores'] = {}
 
-                if idx is not None and 0 <= idx < len(part['matches']):
-                    suggested_match = part['matches'][idx]
-                    part['selected_match'] = suggested_match
-                    part['ai_confidence'] = confidence
-                    part['ai_reasoning'] = result.get('reasoning', '')
-                    # Store the AI score for this specific match
-                    part['ai_match_scores'][suggested_match] = confidence
+            matches = part.get('matches', [])
+            if idx is not None and 0 <= idx < len(matches):
+                suggested_match = matches[idx]
+                part['selected_match'] = suggested_match
+                part['ai_confidence'] = confidence
+                part['ai_reasoning'] = result.get('reasoning', '')
+                # Store the AI score for this specific match
+                part['ai_match_scores'][suggested_match] = confidence
 
-            # Update UI for this specific row
-            self.update_part_row(row_idx)
-
-            # Auto-refresh matches table if this is the currently selected part
-            selected_rows = self.parts_list.selectedIndexes()
-            if selected_rows and selected_rows[0].row() == row_idx:
-                self.refresh_matches_display()
-
-            # Update review count
-            self.update_review_count()
+        # Refresh the appropriate tables
+        if part in self.multiple_parts:
+            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+        elif part in self.need_review_parts:
+            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
 
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""
         applied = 0
         for part in self.parts_needing_review:
-            pn = part['PartNumber']
-            if pn in suggestions:
+            # Ensure part is a dict
+            if not isinstance(part, dict):
+                continue
+            
+            pn = part.get('PartNumber')
+            if pn and pn in suggestions:
                 suggestion = suggestions[pn]
                 idx = suggestion.get('suggested_index')
-                if idx is not None and 0 <= idx < len(part['matches']):
-                    part['selected_match'] = part['matches'][idx]
+                matches = part.get('matches', [])
+                if idx is not None and 0 <= idx < len(matches):
+                    part['selected_match'] = matches[idx]
                     part['ai_confidence'] = suggestion.get('confidence', 0)
                     part['ai_reasoning'] = suggestion.get('reasoning', '')
                     applied += 1

@@ -25,7 +25,7 @@ try:
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
         QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu,
-        QTabWidget
+        QTabWidget, QButtonGroup
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -4948,6 +4948,11 @@ class SupplyFrameReviewPage(QWizardPage):
         matches = part.get('matches', [])
         matches_table.setRowCount(len(matches))
 
+        # Create a button group to ensure only one radio button can be selected at a time
+        button_group = QButtonGroup()
+        # Store the button group to prevent garbage collection
+        matches_table.button_group = button_group
+
         # Calculate similarity scores for confidence
         from difflib import SequenceMatcher
         original_pn = part.get('PartNumber', '').upper().strip()
@@ -4965,6 +4970,9 @@ class SupplyFrameReviewPage(QWizardPage):
             if part.get('selected_match') == match:
                 radio.setChecked(True)
             radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
+
+            # Add radio button to the button group to ensure mutual exclusivity
+            button_group.addButton(radio)
 
             # Create a widget to center the radio button
             radio_widget = QWidget()
@@ -5026,6 +5034,11 @@ class SupplyFrameReviewPage(QWizardPage):
         # Re-populate matches table
         self.matches_table.setRowCount(len(part['matches']))
 
+        # Create a button group to ensure only one radio button can be selected at a time
+        button_group = QButtonGroup()
+        # Store the button group to prevent garbage collection
+        self.matches_table.button_group = button_group
+
         from difflib import SequenceMatcher
         original_pn = part['PartNumber'].upper().strip()
 
@@ -5042,6 +5055,9 @@ class SupplyFrameReviewPage(QWizardPage):
             if part.get('selected_match') == match:
                 radio.setChecked(True)
             radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
+
+            # Add radio button to the button group to ensure mutual exclusivity
+            button_group.addButton(radio)
 
             radio_widget = QWidget()
             radio_layout = QHBoxLayout(radio_widget)

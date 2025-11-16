@@ -4280,29 +4280,48 @@ class SupplyFrameReviewPage(QWizardPage):
         normalizations = {}
         reasoning_map = {}
 
+        # Show ALL manufacturers, not just high-confidence matches
         for original in original_mfgs:
             # Skip if original is already in canonical list (exact match)
             if original in canonical_mfgs:
+                # Still add to table but with itself as suggestion
+                normalizations[original] = original
+                reasoning_map[original] = {
+                    'method': 'exact',
+                    'score': 100,
+                    'reasoning': f"Exact match - already in PAS canonical list"
+                }
                 continue
 
             # Find best match in canonical names using fuzzy matching
-            result = process.extractOne(original, canonical_mfgs, scorer=fuzz.ratio)
-            if result:
-                match_name, score = result[0], result[1]
+            best_match = None
+            best_score = 0
 
-                # Only suggest normalization if:
-                # 1. Names are different (not exact match)
-                # 2. Score is high enough (>= 85) to suggest they're the same manufacturer
-                if original != match_name and score >= 85:
-                    normalizations[original] = match_name
-                    reasoning_map[original] = {
-                        'method': 'fuzzy',
-                        'score': score,
-                        'reasoning': f"Fuzzy match against PAS master list: {score}% similarity"
-                    }
-                    print(f"DEBUG: Normalization suggestion: '{original}' -> '{match_name}' ({score}%)")
+            if canonical_mfgs:  # Only search if we have canonical names
+                result = process.extractOne(original, canonical_mfgs, scorer=fuzz.ratio)
+                if result:
+                    best_match, best_score = result[0], result[1]
 
-        # If we found variations, populate the table
+            # Add ALL manufacturers to the table with their best suggestion (if any)
+            if best_match and best_score >= 70:  # Lower threshold for suggestions
+                normalizations[original] = best_match
+                reasoning_map[original] = {
+                    'method': 'fuzzy',
+                    'score': best_score,
+                    'reasoning': f"Fuzzy match against PAS master list: {best_score}% similarity"
+                }
+                print(f"DEBUG: Normalization suggestion: '{original}' -> '{best_match}' ({best_score}%)")
+            else:
+                # No good match - show it anyway with itself as default
+                normalizations[original] = original
+                reasoning_map[original] = {
+                    'method': 'manual',
+                    'score': 0,
+                    'reasoning': f"No automatic match found - requires manual review"
+                }
+                print(f"DEBUG: No match for '{original}' - added for manual review")
+
+        # Always populate the table if we have manufacturers
         if normalizations:
             self.manufacturer_normalizations = normalizations
             self.normalization_reasoning = reasoning_map
@@ -4312,47 +4331,31 @@ class SupplyFrameReviewPage(QWizardPage):
 
             row_idx = 0
             for original, canonical in normalizations.items():
-                # Include checkbox (checked by default)
+                # Include checkbox - uncheck exact matches (no change needed), check others
                 include_cb = QCheckBox()
-                include_cb.setChecked(True)
+                method = reasoning_map.get(original, {}).get('method', 'manual')
+                # Uncheck exact matches (original == canonical, no change needed)
+                # Check fuzzy matches and manual review items
+                include_cb.setChecked(method != 'exact' and original != canonical)
                 self.norm_table.setCellWidget(row_idx, 0, include_cb)
 
                 # Original MFG (read-only)
                 self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-                # Normalize To (editable combo box with color-coded manufacturers)
+                # Normalize To (editable combo box with simplified dropdown)
                 normalize_combo = QComboBox()
                 normalize_combo.setEditable(True)
 
-                # Use QStandardItemModel for color coding
-                from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
-                model = QStandardItemModel()
+                # Build combined list of all unique manufacturers
+                all_manufacturers = set()
+                all_manufacturers.update(self.canonical_manufacturers)  # PAS canonical names
+                all_manufacturers.update(original_mfgs)  # Original names from data
 
-                # Add canonical manufacturers with color coding
-                for mfg in self.canonical_manufacturers:
-                    item = QStandardItem(mfg)
-                    # Color-code manufacturers from user's review selections
-                    if mfg in self.selected_manufacturers:
-                        # GREEN for user-selected manufacturers (their review work)
-                        item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
-                        item.setToolTip("✓ Selected from review phase - preserves your work")
-                        # Make it bold
-                        font = item.font()
-                        font.setBold(True)
-                        item.setFont(font)
-                    else:
-                        # Normal black for other canonical manufacturers
-                        item.setToolTip("Canonical manufacturer from PAS database")
-                    model.appendRow(item)
+                # Sort and add to dropdown
+                for mfg in sorted(all_manufacturers):
+                    normalize_combo.addItem(mfg)
 
-                # Add original names not in canonical list (in gray)
-                for mfg in sorted(original_mfgs - canonical_mfgs):
-                    item = QStandardItem(mfg)
-                    item.setForeground(QBrush(QColor(128, 128, 128)))  # Gray
-                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
-                    model.appendRow(item)
-
-                normalize_combo.setModel(model)
+                # Set current suggestion
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
@@ -4364,8 +4367,14 @@ class SupplyFrameReviewPage(QWizardPage):
                 row_idx += 1
 
             # Update status and enable buttons
+            # Count suggestions vs manual review
+            fuzzy_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'fuzzy')
+            exact_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'exact')
+            manual_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'manual')
+
             self.norm_status.setText(
-                f"✓ Found {len(normalizations)} variations using PAS master list ({len(canonical_mfgs)} canonical names)"
+                f"✓ Showing {len(normalizations)} manufacturers: "
+                f"{exact_count} exact matches, {fuzzy_count} suggested normalizations, {manual_count} need manual review"
             )
             self.norm_status.setStyleSheet("color: green; font-weight: bold;")
             self.save_normalizations_btn.setEnabled(True)
@@ -5169,16 +5178,16 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
 
-        # Color legend for dropdown
-        legend_label = QLabel(
-            "<b>Normalize To dropdown colors:</b> "
-            "<span style='color: green; font-weight: bold;'>● Green/Bold</span> = Your review selections (preserves your work) | "
-            "<span style='color: black;'>● Black</span> = PAS canonical manufacturers | "
-            "<span style='color: gray;'>● Gray</span> = Original names (not in PAS)"
+        # Help text
+        help_label = QLabel(
+            "<b>Instructions:</b> Review each manufacturer. "
+            "Uncheck 'Include' to skip normalization. "
+            "Edit 'Normalize To' dropdown to change suggestion. "
+            "Right-click rows to see detection reasoning."
         )
-        legend_label.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px; font-size: 9pt;")
-        legend_label.setWordWrap(True)
-        norm_layout.addWidget(legend_label)
+        help_label.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px; font-size: 9pt;")
+        help_label.setWordWrap(True)
+        norm_layout.addWidget(help_label)
 
         # Save button
         save_norm_layout = QHBoxLayout()
@@ -6145,45 +6154,26 @@ class SupplyFrameReviewPage(QWizardPage):
 
         row_idx = 0
         for original, canonical in normalizations.items():
-            # Include checkbox
+            # Include checkbox - uncheck exact matches (no change needed), check others
             include_cb = QCheckBox()
-            include_cb.setChecked(True)
+            method = reasoning_map.get(original, {}).get('method', 'manual')
+            # Uncheck exact matches (original == canonical, no change needed)
+            # Check fuzzy/AI matches and manual review items
+            include_cb.setChecked(method != 'exact' and original != canonical)
             self.norm_table.setCellWidget(row_idx, 0, include_cb)
 
             # Original MFG (read-only)
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-            # Normalize To (editable combo box with color-coded manufacturers)
+            # Normalize To (editable combo box with simplified dropdown)
             normalize_combo = QComboBox()
             normalize_combo.setEditable(True)
 
-            # Use QStandardItemModel for color coding
-            from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
-            model = QStandardItemModel()
-
-            # Add all manufacturers with color coding
+            # Add all unique manufacturers sorted
             for mfg in sorted(all_mfgs):
-                item = QStandardItem(mfg)
+                normalize_combo.addItem(mfg)
 
-                # Color-code based on source
-                if mfg in selected_mfgs:
-                    # GREEN for user-selected manufacturers (their review work)
-                    item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
-                    item.setToolTip("✓ Selected from review phase - preserves your work")
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                elif mfg in canonical_mfgs:
-                    # Normal black for other canonical manufacturers
-                    item.setToolTip("Canonical manufacturer from PAS database")
-                else:
-                    # Gray for original names
-                    item.setForeground(QBrush(QColor(128, 128, 128)))
-                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
-
-                model.appendRow(item)
-
-            normalize_combo.setModel(model)
+            # Set current suggestion
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
@@ -6194,23 +6184,26 @@ class SupplyFrameReviewPage(QWizardPage):
 
             row_idx += 1
 
-        # Count fuzzy vs AI matches
+        # Count method types
         fuzzy_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'fuzzy')
         ai_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'ai')
+        exact_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'exact')
+        manual_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'manual')
 
         self.norm_status.setText(
-            f"✓ Found {len(normalizations)} variations "
-            f"({fuzzy_count} fuzzy, {ai_count} AI-validated)"
+            f"✓ Showing {len(normalizations)} manufacturers: "
+            f"{exact_count} exact matches, {fuzzy_count} fuzzy, {ai_count} AI-validated, {manual_count} manual review"
         )
         self.norm_status.setStyleSheet("color: green; font-weight: bold;")
         self.ai_normalize_btn.setEnabled(True)
         self.save_normalizations_btn.setEnabled(True)
 
-        QMessageBox.information(self, "Normalization Detected",
-                              f"Hybrid analysis complete!\n\n"
-                              f"• {fuzzy_count} high-confidence fuzzy matches\n"
-                              f"• {ai_count} AI-validated matches\n"
-                              f"• Total: {len(normalizations)} normalizations\n\n"
+        QMessageBox.information(self, "Normalization Detection Complete",
+                              f"Analysis complete! Showing all {len(normalizations)} manufacturers:\n\n"
+                              f"• {exact_count} exact matches (no changes needed)\n"
+                              f"• {fuzzy_count} fuzzy match suggestions\n"
+                              f"• {ai_count} AI-validated suggestions\n"
+                              f"• {manual_count} need manual review\n\n"
                               f"Right-click any row to see detection reasoning.\n"
                               f"Review and adjust as needed.")
 

@@ -2395,8 +2395,8 @@ class PASSearchPage(QWizardPage):
                 )
                 return
 
-            # Create PAS client
-            pas_client = PASAPIClient(
+            # Create PAS client and store it as instance variable for re-search functionality
+            self.pas_client = PASAPIClient(
                 client_id=pas_creds['client_id'],
                 client_secret=pas_creds['client_secret']
             )
@@ -2418,7 +2418,7 @@ class PASSearchPage(QWizardPage):
 
             # Start search thread with parallel execution
             # max_workers=15 means 15 concurrent PAS API calls (adjustable for performance)
-            self.search_thread = PASSearchThread(pas_client, parts_list, max_workers=15)
+            self.search_thread = PASSearchThread(self.pas_client, parts_list, max_workers=15)
             self.search_thread.progress.connect(self.on_search_progress)
             self.search_thread.result_ready.connect(self.on_result_ready)  # Real-time display
             self.search_thread.finished.connect(self.on_search_finished)
@@ -3261,10 +3261,11 @@ class PASSearchThread(QThread):
         manufacturer = str(manufacturer).strip() if manufacturer else ''
         part_number = str(part_number).strip() if part_number else ''
 
-        if not manufacturer or not part_number:
+        # Only require part_number (MFG can be empty)
+        if not part_number:
             with self.lock:
                 self.completed_count += 1
-                self.progress.emit(f"Skipping part {self.completed_count}/{total} (missing MFG or Manufacturer PN)...", self.completed_count, total)
+                self.progress.emit(f"Skipping part {self.completed_count}/{total} (missing Manufacturer PN)...", self.completed_count, total)
             return {
                 'PartNumber': part_number if part_number else '(empty)',
                 'ManufacturerName': manufacturer if manufacturer else '(empty)',
@@ -4520,8 +4521,9 @@ class SupplyFrameReviewPage(QWizardPage):
         new_pn = pn_item.text().strip()
         new_mfg = mfg_item.text().strip()
 
-        if not new_pn or not new_mfg:
-            QMessageBox.warning(self, "Missing Data", "Part Number and Manufacturer are required for search.")
+        # Only require part number (MFG can be empty)
+        if not new_pn:
+            QMessageBox.warning(self, "Missing Data", "Part Number is required for search.")
             return
 
         # Get the part data
@@ -5809,8 +5811,12 @@ class SupplyFrameReviewPage(QWizardPage):
         # From original data (ALL manufacturers from Step 3)
         xml_gen_page = self.wizard().page(3)
         if hasattr(xml_gen_page, 'combined_data'):
-            for row in xml_gen_page.combined_data:
-                if row.get('MFG'):
+            # Convert DataFrame to list of dictionaries if needed
+            data = xml_gen_page.combined_data
+            if hasattr(data, 'to_dict'):
+                data = data.to_dict('records')
+            for row in data:
+                if isinstance(row, dict) and row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
         # From SearchAndAssign CSV - collect ALL manufacturers from ALL matches
@@ -5854,8 +5860,12 @@ class SupplyFrameReviewPage(QWizardPage):
         # From original data
         xml_gen_page = self.wizard().page(3)
         if hasattr(xml_gen_page, 'combined_data'):
-            for row in xml_gen_page.combined_data:
-                if row.get('MFG'):
+            # Convert DataFrame to list of dictionaries if needed
+            data = xml_gen_page.combined_data
+            if hasattr(data, 'to_dict'):
+                data = data.to_dict('records')
+            for row in data:
+                if isinstance(row, dict) and row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
         # From search results - collect canonical and selected manufacturers

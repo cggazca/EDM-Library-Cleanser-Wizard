@@ -4018,7 +4018,8 @@ class SupplyFrameReviewPage(QWizardPage):
             if mfg:
                 original_mfgs.add(mfg)
 
-        # From PAS search matches (these are canonical manufacturer names from SupplyFrame)
+        # Build MASTER LIST from PAS search matches
+        # These are canonical manufacturer names validated by Siemens PAS database
         for result in self.search_results:
             for match in result.get('matches', []):
                 if '@' in match:
@@ -4027,20 +4028,29 @@ class SupplyFrameReviewPage(QWizardPage):
                     if mfg:
                         canonical_mfgs.add(mfg)
 
+        # Store the canonical manufacturer list for future use
+        self.canonical_manufacturers = sorted(list(canonical_mfgs))
+
         if not original_mfgs or not canonical_mfgs:
             self.norm_status.setText("No manufacturer variations detected")
+            # Still store empty list
+            self.canonical_manufacturers = []
             return
+
+        # Display master list info
+        print(f"DEBUG: Built master manufacturer list with {len(canonical_mfgs)} canonical names from PAS")
+        print(f"DEBUG: Comparing against {len(original_mfgs)} original manufacturer names")
 
         # Use fuzzy matching to find variations
         normalizations = {}
         reasoning_map = {}
 
         for original in original_mfgs:
-            # Find best match in canonical names using fuzzy matching
-            best_match = None
-            best_score = 0
+            # Skip if original is already in canonical list (exact match)
+            if original in canonical_mfgs:
+                continue
 
-            # Try to find a match in canonical names
+            # Find best match in canonical names using fuzzy matching
             result = process.extractOne(original, canonical_mfgs, scorer=fuzz.ratio)
             if result:
                 match_name, score = result[0], result[1]
@@ -4053,16 +4063,14 @@ class SupplyFrameReviewPage(QWizardPage):
                     reasoning_map[original] = {
                         'method': 'fuzzy',
                         'score': score,
-                        'reasoning': f"Fuzzy match score: {score}% similarity"
+                        'reasoning': f"Fuzzy match against PAS master list: {score}% similarity"
                     }
+                    print(f"DEBUG: Normalization suggestion: '{original}' -> '{match_name}' ({score}%)")
 
         # If we found variations, populate the table
         if normalizations:
             self.manufacturer_normalizations = normalizations
             self.normalization_reasoning = reasoning_map
-
-            # Collect all manufacturers for dropdown
-            all_mfgs = sorted(list(original_mfgs | canonical_mfgs))
 
             # Populate normalization table
             self.norm_table.setRowCount(len(normalizations))
@@ -4077,10 +4085,14 @@ class SupplyFrameReviewPage(QWizardPage):
                 # Original MFG (read-only)
                 self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-                # Normalize To (editable combo box)
+                # Normalize To (editable combo box with canonical manufacturers prioritized)
                 normalize_combo = QComboBox()
                 normalize_combo.setEditable(True)
-                normalize_combo.addItems(all_mfgs)
+                # Prioritize canonical manufacturers from PAS in dropdown
+                normalize_combo.addItems(self.canonical_manufacturers)
+                # Add any remaining original names not in canonical list
+                for mfg in sorted(original_mfgs - canonical_mfgs):
+                    normalize_combo.addItem(mfg)
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
@@ -4092,7 +4104,9 @@ class SupplyFrameReviewPage(QWizardPage):
                 row_idx += 1
 
             # Update status and enable buttons
-            self.norm_status.setText(f"✓ Found {len(normalizations)} manufacturer variations (fuzzy matching)")
+            self.norm_status.setText(
+                f"✓ Found {len(normalizations)} variations using PAS master list ({len(canonical_mfgs)} canonical names)"
+            )
             self.norm_status.setStyleSheet("color: green; font-weight: bold;")
             self.save_normalizations_btn.setEnabled(True)
 
@@ -4102,7 +4116,9 @@ class SupplyFrameReviewPage(QWizardPage):
             if api_key and ANTHROPIC_AVAILABLE:
                 self.ai_normalize_btn.setEnabled(True)
         else:
-            self.norm_status.setText("No manufacturer variations detected")
+            self.norm_status.setText(
+                f"No variations detected (compared {len(original_mfgs)} names against {len(canonical_mfgs)} PAS manufacturers)"
+            )
 
             # Still enable AI button if available
             start_page = self.wizard().page(0)

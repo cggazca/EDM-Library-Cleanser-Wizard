@@ -3922,7 +3922,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.populate_category_table(self.found_table, found, show_actions=False)
         self.populate_category_table(self.multiple_table, multiple, show_actions=True)
         self.populate_category_table(self.need_review_table, need_review, show_actions=True)
-        self.populate_category_table(self.none_table, none, show_actions=False)
+        self.populate_category_table(self.none_table, none, show_actions="editable")  # Editable mode for None tab
         self.populate_category_table(self.errors_table, errors, show_actions=False)
 
         # For backward compatibility
@@ -4003,9 +4003,165 @@ class SupplyFrameReviewPage(QWizardPage):
 
 
     def identify_normalization_candidates(self):
-        """Identify manufacturers that need normalization"""
-        # Placeholder - will detect variations in manufacturer names
-        pass
+        """Identify manufacturers that need normalization using fuzzy matching"""
+        if not FUZZYWUZZY_AVAILABLE:
+            self.norm_status.setText("⚠ Fuzzy matching not available (install fuzzywuzzy)")
+            return
+
+        # Collect all manufacturer names from search results
+        original_mfgs = set()
+        canonical_mfgs = set()
+
+        # From original data in all search results
+        for result in self.search_results:
+            mfg = result.get('ManufacturerName', '').strip()
+            if mfg:
+                original_mfgs.add(mfg)
+
+        # Build MASTER LIST from PAS search matches
+        # These are canonical manufacturer names validated by Siemens PAS database
+        for result in self.search_results:
+            for match in result.get('matches', []):
+                if '@' in match:
+                    _, mfg = match.split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        canonical_mfgs.add(mfg)
+
+        # Track manufacturers from USER-SELECTED matches (review phase work)
+        # These are manufacturers the user specifically chose during review
+        selected_mfgs = set()
+        for result in self.search_results:
+            if result.get('selected_match'):
+                if '@' in result['selected_match']:
+                    _, mfg = result['selected_match'].split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        selected_mfgs.add(mfg)
+
+        # Store both lists for future use
+        self.canonical_manufacturers = sorted(list(canonical_mfgs))
+        self.selected_manufacturers = sorted(list(selected_mfgs))  # User's review work
+
+        if not original_mfgs or not canonical_mfgs:
+            self.norm_status.setText("No manufacturer variations detected")
+            # Still store empty list
+            self.canonical_manufacturers = []
+            return
+
+        # Display master list info
+        print(f"DEBUG: Built master manufacturer list with {len(canonical_mfgs)} canonical names from PAS")
+        print(f"DEBUG: Comparing against {len(original_mfgs)} original manufacturer names")
+
+        # Use fuzzy matching to find variations
+        normalizations = {}
+        reasoning_map = {}
+
+        for original in original_mfgs:
+            # Skip if original is already in canonical list (exact match)
+            if original in canonical_mfgs:
+                continue
+
+            # Find best match in canonical names using fuzzy matching
+            result = process.extractOne(original, canonical_mfgs, scorer=fuzz.ratio)
+            if result:
+                match_name, score = result[0], result[1]
+
+                # Only suggest normalization if:
+                # 1. Names are different (not exact match)
+                # 2. Score is high enough (>= 85) to suggest they're the same manufacturer
+                if original != match_name and score >= 85:
+                    normalizations[original] = match_name
+                    reasoning_map[original] = {
+                        'method': 'fuzzy',
+                        'score': score,
+                        'reasoning': f"Fuzzy match against PAS master list: {score}% similarity"
+                    }
+                    print(f"DEBUG: Normalization suggestion: '{original}' -> '{match_name}' ({score}%)")
+
+        # If we found variations, populate the table
+        if normalizations:
+            self.manufacturer_normalizations = normalizations
+            self.normalization_reasoning = reasoning_map
+
+            # Populate normalization table
+            self.norm_table.setRowCount(len(normalizations))
+
+            row_idx = 0
+            for original, canonical in normalizations.items():
+                # Include checkbox (checked by default)
+                include_cb = QCheckBox()
+                include_cb.setChecked(True)
+                self.norm_table.setCellWidget(row_idx, 0, include_cb)
+
+                # Original MFG (read-only)
+                self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
+
+                # Normalize To (editable combo box with color-coded manufacturers)
+                normalize_combo = QComboBox()
+                normalize_combo.setEditable(True)
+
+                # Use QStandardItemModel for color coding
+                from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
+                model = QStandardItemModel()
+
+                # Add canonical manufacturers with color coding
+                for mfg in self.canonical_manufacturers:
+                    item = QStandardItem(mfg)
+                    # Color-code manufacturers from user's review selections
+                    if mfg in self.selected_manufacturers:
+                        # GREEN for user-selected manufacturers (their review work)
+                        item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
+                        item.setToolTip("✓ Selected from review phase - preserves your work")
+                        # Make it bold
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    else:
+                        # Normal black for other canonical manufacturers
+                        item.setToolTip("Canonical manufacturer from PAS database")
+                    model.appendRow(item)
+
+                # Add original names not in canonical list (in gray)
+                for mfg in sorted(original_mfgs - canonical_mfgs):
+                    item = QStandardItem(mfg)
+                    item.setForeground(QBrush(QColor(128, 128, 128)))  # Gray
+                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
+                    model.appendRow(item)
+
+                normalize_combo.setModel(model)
+                normalize_combo.setCurrentText(canonical)
+                self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
+
+                # Scope dropdown
+                scope_combo = QComboBox()
+                scope_combo.addItems(["All Catalogs", "Per Catalog"])
+                self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+
+                row_idx += 1
+
+            # Update status and enable buttons
+            self.norm_status.setText(
+                f"✓ Found {len(normalizations)} variations using PAS master list ({len(canonical_mfgs)} canonical names)"
+            )
+            self.norm_status.setStyleSheet("color: green; font-weight: bold;")
+            self.save_normalizations_btn.setEnabled(True)
+
+            # Enable AI button if API key is available for additional validation
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            if api_key and ANTHROPIC_AVAILABLE:
+                self.ai_normalize_btn.setEnabled(True)
+        else:
+            self.norm_status.setText(
+                f"No variations detected (compared {len(original_mfgs)} names against {len(canonical_mfgs)} PAS manufacturers)"
+            )
+
+            # Still enable AI button if available
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            if api_key and ANTHROPIC_AVAILABLE:
+                self.ai_normalize_btn.setEnabled(True)
 
     def create_review_section_widget(self):
         """Section 2: Review Partial Matches - Tabbed by Match Status"""
@@ -4019,7 +4175,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.found_tab = self.create_category_tab("Found", show_actions=False)
         self.multiple_tab = self.create_category_tab("Multiple", show_actions=True)
         self.need_review_tab = self.create_category_tab("Need Review", show_actions=True)
-        self.none_tab = self.create_category_tab("None", show_actions=False)
+        self.none_tab = self.create_category_tab("None", show_actions="editable")  # Special editable mode for None tab
         self.errors_tab = self.create_category_tab("Errors", show_actions=False)
         
         # Add tabs to widget with emoji indicators
@@ -4065,7 +4221,11 @@ class SupplyFrameReviewPage(QWizardPage):
         
         # Parts list table
         parts_table = QTableWidget()
-        if show_actions:
+        if show_actions == "editable":
+            # Special editable mode for None tab - editable MFG and Part Number with re-search action
+            parts_table.setColumnCount(4)
+            parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Action"])
+        elif show_actions:
             parts_table.setColumnCount(6)
             parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI", "Action"])
         else:
@@ -4077,7 +4237,9 @@ class SupplyFrameReviewPage(QWizardPage):
         parts_header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
         parts_header.setSectionResizeMode(1, QHeaderView.Stretch)  # MFG
         parts_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Status
-        if show_actions:
+        if show_actions == "editable":
+            parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Action
+        elif show_actions:
             parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
             parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
             parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
@@ -4152,8 +4314,26 @@ class SupplyFrameReviewPage(QWizardPage):
         # Right panel: Match options (only for interactive categories)
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        
-        if show_actions:
+
+        if show_actions == "editable":
+            # For editable None tab, show instructions
+            info_label = QLabel(
+                "<h3>No Matches Found</h3>"
+                "<p>These parts had no matches in the PAS database. You can:</p>"
+                "<ul>"
+                "<li><b>Edit</b> the Part Number or MFG fields directly in the table</li>"
+                "<li>Click <b>🔍 Re-search</b> to search again with the modified values</li>"
+                "<li>If a match is found, the part will move to the appropriate tab</li>"
+                "</ul>"
+                "<p style='color: #666; font-size: 10pt;'>"
+                "💡 Tip: Try variations of the manufacturer name or part number format"
+                "</p>"
+            )
+            info_label.setWordWrap(True)
+            info_label.setStyleSheet("padding: 20px; background-color: #f9f9f9; border-radius: 5px;")
+            right_layout.addWidget(info_label)
+            right_layout.addStretch()
+        elif show_actions:
             right_layout.addWidget(QLabel("Available Matches:"))
             
             matches_table = QTableWidget()
@@ -4265,19 +4445,41 @@ class SupplyFrameReviewPage(QWizardPage):
             if not isinstance(part, dict):
                 print(f"ERROR: Part at row {row_idx} is not a dict: {type(part)} - {part}")
                 continue
-            
+
             # Ensure matches key exists
             if 'matches' not in part:
                 part['matches'] = []
-            
+
             if row_idx < 5:  # Log first 5
                 print(f"DEBUG: Adding row {row_idx}: {part.get('PartNumber', 'N/A')} | {part.get('ManufacturerName', 'N/A')} | {part.get('MatchStatus', 'N/A')}")
 
-            table.setItem(row_idx, 0, QTableWidgetItem(part.get('PartNumber', 'N/A')))
-            table.setItem(row_idx, 1, QTableWidgetItem(part.get('ManufacturerName', 'N/A')))
-            table.setItem(row_idx, 2, QTableWidgetItem(part.get('MatchStatus', 'N/A')))
+            # Create items for Part Number and MFG
+            pn_item = QTableWidgetItem(part.get('PartNumber', 'N/A'))
+            mfg_item = QTableWidgetItem(part.get('ManufacturerName', 'N/A'))
+            status_item = QTableWidgetItem(part.get('MatchStatus', 'N/A'))
 
-            if show_actions:
+            # Make editable for "editable" mode (None tab)
+            if show_actions == "editable":
+                pn_item.setFlags(pn_item.flags() | Qt.ItemIsEditable)
+                mfg_item.setFlags(mfg_item.flags() | Qt.ItemIsEditable)
+                status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)  # Status not editable
+            else:
+                # Make all non-editable for other tabs
+                pn_item.setFlags(pn_item.flags() & ~Qt.ItemIsEditable)
+                mfg_item.setFlags(mfg_item.flags() & ~Qt.ItemIsEditable)
+                status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)
+
+            table.setItem(row_idx, 0, pn_item)
+            table.setItem(row_idx, 1, mfg_item)
+            table.setItem(row_idx, 2, status_item)
+
+            if show_actions == "editable":
+                # Add Re-search button for None tab
+                research_btn = QPushButton("🔍 Re-search")
+                research_btn.setToolTip("Re-search with modified values")
+                research_btn.clicked.connect(lambda checked, idx=row_idx: self.research_single_part(idx))
+                table.setCellWidget(row_idx, 3, research_btn)
+            elif show_actions:
                 # Reviewed indicator
                 reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
                 reviewed_item.setTextAlignment(Qt.AlignCenter)
@@ -4302,6 +4504,132 @@ class SupplyFrameReviewPage(QWizardPage):
                     table.setCellWidget(row_idx, 5, ai_btn)
 
         print(f"DEBUG: Table populated with {table.rowCount()} rows")
+
+    def research_single_part(self, row_idx):
+        """Re-search a single part from the None tab with modified values"""
+        if row_idx >= len(self.none_parts):
+            return
+
+        # Get the updated values from the table cells
+        pn_item = self.none_table.item(row_idx, 0)
+        mfg_item = self.none_table.item(row_idx, 1)
+
+        if not pn_item or not mfg_item:
+            return
+
+        new_pn = pn_item.text().strip()
+        new_mfg = mfg_item.text().strip()
+
+        if not new_pn or not new_mfg:
+            QMessageBox.warning(self, "Missing Data", "Part Number and Manufacturer are required for search.")
+            return
+
+        # Get the part data
+        part = self.none_parts[row_idx]
+
+        # Update the part data with new values
+        part['PartNumber'] = new_pn
+        part['ManufacturerName'] = new_mfg
+
+        # Disable the button while searching
+        btn = self.none_table.cellWidget(row_idx, 3)
+        if btn:
+            btn.setEnabled(False)
+            btn.setText("⏳ Searching...")
+
+        # Get PAS search page to access the PAS client
+        pas_page = self.wizard().page(3)  # PASSearchPage is page 3
+        if not pas_page or not hasattr(pas_page, 'pas_client'):
+            QMessageBox.warning(self, "Error", "PAS API client not available.")
+            if btn:
+                btn.setEnabled(True)
+                btn.setText("🔍 Re-search")
+            return
+
+        try:
+            # Perform PAS search using the PAS client's search_part method
+            match_result, match_type = pas_page.pas_client.search_part(new_pn, new_mfg)
+
+            # Map match_type to status
+            if match_type in ['Found', 'Multiple', 'Need user review', 'None', 'Error']:
+                status = match_type
+            else:
+                status = 'None'
+
+            # Update the part data
+            part['MatchStatus'] = status
+            part['matches'] = match_result.get('matches', [])
+
+            # Update the table to show new status
+            status_item = self.none_table.item(row_idx, 2)
+            if status_item:
+                status_item.setText(status)
+
+            # Move part to appropriate category if match found
+            if status != 'None' and status != 'Error':
+                # Remove from none_parts
+                self.none_parts.pop(row_idx)
+
+                # Add to appropriate category
+                if status == 'Found':
+                    self.found_parts.append(part)
+                    # Auto-select the match for Found parts
+                    if part['matches']:
+                        part['selected_match'] = part['matches'][0]
+                elif status == 'Multiple':
+                    self.multiple_parts.append(part)
+                elif status == 'Need user review':
+                    self.need_review_parts.append(part)
+
+                # Update search_results to reflect the change
+                for result in self.search_results:
+                    if (result.get('PartNumber') == part.get('original_pn', part['PartNumber']) and
+                        result.get('ManufacturerName') == part.get('original_mfg', part['ManufacturerName'])):
+                        result['MatchStatus'] = status
+                        result['matches'] = part['matches']
+                        break
+
+                # Re-populate all tabs to reflect changes
+                self.populate_category_table(self.found_table, self.found_parts, show_actions=False)
+                self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+                self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+                self.populate_category_table(self.none_table, self.none_parts, show_actions="editable")
+
+                # Update tab counts
+                self.review_tabs.setTabText(0, f"⚠ Multiple ({len(self.multiple_parts)})")
+                self.review_tabs.setTabText(1, f"👁 Need Review ({len(self.need_review_parts)})")
+                self.review_tabs.setTabText(2, f"✓ Found ({len(self.found_parts)})")
+                self.review_tabs.setTabText(3, f"✗ None ({len(self.none_parts)})")
+
+                # Show result message
+                if status == 'Found':
+                    QMessageBox.information(self, "Match Found!",
+                        f"Found exact match for {new_pn}!\n\nThe part has been moved to the 'Found' tab.")
+                elif status == 'Multiple':
+                    QMessageBox.information(self, "Multiple Matches Found",
+                        f"Found {len(part['matches'])} matches for {new_pn}.\n\n"
+                        f"The part has been moved to the 'Multiple' tab where you can select the correct match.")
+                elif status == 'Need user review':
+                    QMessageBox.information(self, "Match Needs Review",
+                        f"Found match(es) for {new_pn} that need review.\n\n"
+                        f"The part has been moved to the 'Need Review' tab.")
+            else:
+                QMessageBox.information(self, "No Match Found",
+                    f"Still no matches found for {new_pn} with manufacturer {new_mfg}.\n\n"
+                    f"Try editing the values and searching again.")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Search Error", f"Error during search: {str(e)}")
+            part['MatchStatus'] = 'Error'
+            status_item = self.none_table.item(row_idx, 2)
+            if status_item:
+                status_item.setText('Error')
+
+        finally:
+            # Re-enable the button
+            if btn:
+                btn.setEnabled(True)
+                btn.setText("🔍 Re-search")
 
     def auto_select_highest_for_category(self, category):
         """Auto-select highest similarity matches for a specific category"""
@@ -4591,6 +4919,17 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
+
+        # Color legend for dropdown
+        legend_label = QLabel(
+            "<b>Normalize To dropdown colors:</b> "
+            "<span style='color: green; font-weight: bold;'>● Green/Bold</span> = Your review selections (preserves your work) | "
+            "<span style='color: black;'>● Black</span> = PAS canonical manufacturers | "
+            "<span style='color: gray;'>● Gray</span> = Original names (not in PAS)"
+        )
+        legend_label.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px; font-size: 9pt;")
+        legend_label.setWordWrap(True)
+        norm_layout.addWidget(legend_label)
 
         # Save button
         save_norm_layout = QHBoxLayout()
@@ -5509,6 +5848,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Collect all unique manufacturers from both sources
         all_mfgs = set()
+        canonical_mfgs = set()
+        selected_mfgs = set()  # User-selected manufacturers from review phase
 
         # From original data
         xml_gen_page = self.wizard().page(3)
@@ -5517,19 +5858,30 @@ class SupplyFrameReviewPage(QWizardPage):
                 if row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
-        # From SearchAndAssign (SupplyFrame canonical names)
-        for part in self.search_assign_data:
-            if part.get('selected_match') and '@' in part['selected_match']:
-                _, mfg = part['selected_match'].split('@', 1)
-                all_mfgs.add(mfg)
+        # From search results - collect canonical and selected manufacturers
+        if hasattr(self, 'search_results'):
+            for result in self.search_results:
+                # Collect all canonical manufacturers from matches
+                for match in result.get('matches', []):
+                    if '@' in match:
+                        _, mfg = match.split('@', 1)
+                        mfg = mfg.strip()
+                        if mfg:
+                            canonical_mfgs.add(mfg)
+                            all_mfgs.add(mfg)
+
+                # Track user-selected manufacturers (their review work)
+                if result.get('selected_match') and '@' in result['selected_match']:
+                    _, mfg = result['selected_match'].split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        selected_mfgs.add(mfg)
+                        all_mfgs.add(mfg)
 
         # From normalization suggestions
         for original, canonical in normalizations.items():
             all_mfgs.add(original)
             all_mfgs.add(canonical)
-
-        # Sort manufacturers for easier selection
-        sorted_mfgs = sorted(list(all_mfgs))
 
         # Populate normalization table
         self.norm_table.setRowCount(len(normalizations))
@@ -5544,10 +5896,37 @@ class SupplyFrameReviewPage(QWizardPage):
             # Original MFG (read-only)
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-            # Normalize To (editable combo box)
+            # Normalize To (editable combo box with color-coded manufacturers)
             normalize_combo = QComboBox()
             normalize_combo.setEditable(True)
-            normalize_combo.addItems(sorted_mfgs)
+
+            # Use QStandardItemModel for color coding
+            from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
+            model = QStandardItemModel()
+
+            # Add all manufacturers with color coding
+            for mfg in sorted(all_mfgs):
+                item = QStandardItem(mfg)
+
+                # Color-code based on source
+                if mfg in selected_mfgs:
+                    # GREEN for user-selected manufacturers (their review work)
+                    item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
+                    item.setToolTip("✓ Selected from review phase - preserves your work")
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                elif mfg in canonical_mfgs:
+                    # Normal black for other canonical manufacturers
+                    item.setToolTip("Canonical manufacturer from PAS database")
+                else:
+                    # Gray for original names
+                    item.setForeground(QBrush(QColor(128, 128, 128)))
+                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
+
+                model.appendRow(item)
+
+            normalize_combo.setModel(model)
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 

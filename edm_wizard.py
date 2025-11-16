@@ -1499,9 +1499,9 @@ class ColumnMappingPage(QWizardPage):
         mapping_layout = QVBoxLayout()
 
         self.mapping_table = QTableWidget()
-        self.mapping_table.setColumnCount(7)
+        self.mapping_table.setColumnCount(8)
         self.mapping_table.setHorizontalHeaderLabels([
-            "Include", "Sheet Name", "MFG Column", "MFG PN Column", "MFG PN Column 2", "Part Number Column", "Description Column"
+            "Include", "Sheet Name", "MFG Column", "MFG PN Column", "MFG PN Column 2", "Part Number Column", "Description Column", "Actions"
         ])
         self.mapping_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.mapping_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -1663,6 +1663,25 @@ class ColumnMappingPage(QWizardPage):
         self.populate_mapping_table(dataframes)
         self.populate_bulk_column_names()
 
+        # Enable/disable per-row action buttons based on API key availability
+        self.update_action_buttons_state()
+
+    def update_action_buttons_state(self):
+        """Enable or disable per-row action buttons based on API key availability"""
+        enabled = self.api_key and ANTHROPIC_AVAILABLE
+
+        for row in range(self.mapping_table.rowCount()):
+            action_btn = self.mapping_table.cellWidget(row, 7)
+            if action_btn:
+                action_btn.setEnabled(enabled)
+                if not enabled:
+                    if not ANTHROPIC_AVAILABLE:
+                        action_btn.setToolTip("Anthropic package not installed")
+                    elif not self.api_key:
+                        action_btn.setToolTip("No API key provided. Please configure in the Start page.")
+                else:
+                    action_btn.setToolTip("Auto-detect column mappings for this sheet using AI")
+
     def populate_bulk_column_names(self):
         """Populate bulk assign dropdown with all available columns"""
         all_columns = set()
@@ -1792,6 +1811,31 @@ class ColumnMappingPage(QWizardPage):
                 combo.setProperty("mapping_type", mapping_type)
                 self.mapping_table.setCellWidget(row, col_idx, combo)
 
+            # Add auto-detect action button
+            action_btn = QPushButton("🤖 Auto-Detect")
+            action_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    font-weight: bold;
+                    padding: 5px 10px;
+                    border-radius: 3px;
+                    font-size: 10pt;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                    color: #666666;
+                }
+            """)
+            action_btn.setProperty("sheet_name", sheet_name)
+            action_btn.setProperty("row_index", row)
+            action_btn.clicked.connect(lambda checked, r=row: self.auto_detect_single_row(r))
+            action_btn.setToolTip("Auto-detect column mappings for this sheet using AI")
+            self.mapping_table.setCellWidget(row, 7, action_btn)
+
     def get_included_sheets(self):
         """Get list of sheets that are checked for inclusion"""
         included = []
@@ -1861,6 +1905,131 @@ class ColumnMappingPage(QWizardPage):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load configuration:\n{str(e)}")
 
+    def auto_detect_single_row(self, row):
+        """Auto-detect column mappings for a single row using AI"""
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(
+                self,
+                "AI Not Available",
+                "Claude AI is not available. Please provide an API key in the Start page."
+            )
+            return
+
+        # Get sheet name for this row
+        sheet_item = self.mapping_table.item(row, 1)
+        if not sheet_item:
+            return
+
+        sheet_name = sheet_item.text()
+
+        # Get the dataframe for this sheet
+        if sheet_name not in self.dataframes:
+            QMessageBox.warning(
+                self,
+                "Sheet Not Found",
+                f"Could not find data for sheet: {sheet_name}"
+            )
+            return
+
+        # Get the action button for this row
+        action_btn = self.mapping_table.cellWidget(row, 7)
+        if action_btn:
+            action_btn.setEnabled(False)
+            action_btn.setText("⏳ Detecting...")
+
+        # Get selected model from StartPage
+        start_page = self.wizard().page(0)
+        model = start_page.get_selected_model() if hasattr(start_page, 'get_selected_model') else "claude-sonnet-4-5-20250929"
+
+        # Create and start single sheet detection worker
+        self.single_sheet_worker = SheetDetectionWorker(
+            self.api_key,
+            sheet_name,
+            self.dataframes[sheet_name],
+            model
+        )
+
+        # Connect signals with row information
+        self.single_sheet_worker.finished.connect(
+            lambda sname, mapping, r=row: self.on_single_sheet_finished(r, sname, mapping)
+        )
+        self.single_sheet_worker.error.connect(
+            lambda sname, error, r=row: self.on_single_sheet_error(r, sname, error)
+        )
+
+        self.single_sheet_worker.start()
+
+    def on_single_sheet_finished(self, row, sheet_name, mapping):
+        """Handle completion of single sheet auto-detection"""
+        # Column index mapping
+        col_map = {
+            'MFG': 2,
+            'MFG_PN': 3,
+            'MFG_PN_2': 4,
+            'Part_Number': 5,
+            'Description': 6
+        }
+
+        # Apply mappings to this row
+        for field, col_idx in col_map.items():
+            if field in mapping:
+                mapping_info = mapping[field]
+                column_name = mapping_info.get('column')
+                confidence = mapping_info.get('confidence', 0)
+
+                combo = self.mapping_table.cellWidget(row, col_idx)
+                if combo and column_name:
+                    # Find and set the column
+                    index = combo.findText(column_name)
+                    if index >= 0:
+                        combo.setCurrentIndex(index)
+
+                        # Apply color coding based on confidence
+                        if confidence >= 80:
+                            # High confidence - green
+                            combo.setStyleSheet("background-color: #c8e6c9;")
+                        elif confidence >= 50:
+                            # Medium confidence - yellow
+                            combo.setStyleSheet("background-color: #fff9c4;")
+                        else:
+                            # Low confidence - orange
+                            combo.setStyleSheet("background-color: #ffe0b2;")
+
+                        # Add tooltip with confidence score
+                        combo.setToolTip(f"AI Confidence: {confidence}%")
+
+        # Re-enable the action button
+        action_btn = self.mapping_table.cellWidget(row, 7)
+        if action_btn:
+            action_btn.setEnabled(True)
+            action_btn.setText("🤖 Auto-Detect")
+
+        # Show success message with confidence info
+        QMessageBox.information(
+            self,
+            "Detection Complete",
+            f"Column mappings detected for '{sheet_name}'!\n\n"
+            "Color coding:\n"
+            "🟢 Green: High confidence (80%+)\n"
+            "🟡 Yellow: Medium confidence (50-79%)\n"
+            "🟠 Orange: Low confidence (<50%)\n\n"
+            "Hover over dropdowns to see confidence scores."
+        )
+
+    def on_single_sheet_error(self, row, sheet_name, error_msg):
+        """Handle error from single sheet auto-detection"""
+        # Re-enable the action button
+        action_btn = self.mapping_table.cellWidget(row, 7)
+        if action_btn:
+            action_btn.setEnabled(True)
+            action_btn.setText("🤖 Auto-Detect")
+
+        QMessageBox.critical(
+            self,
+            "Detection Failed",
+            f"Failed to auto-detect columns for '{sheet_name}':\n{error_msg}"
+        )
+
     def auto_detect_with_ai(self):
         """Use Claude AI to automatically detect column mappings"""
         if not self.api_key or not ANTHROPIC_AVAILABLE:
@@ -1888,12 +2057,16 @@ class ColumnMappingPage(QWizardPage):
         self.save_config_btn.setEnabled(False)
         self.load_config_btn.setEnabled(False)
 
-        # Disable all dropdowns in the mapping table
+        # Disable all dropdowns and action buttons in the mapping table
         for row in range(self.mapping_table.rowCount()):
             for col in range(2, 7):  # Columns 2-6 are the dropdowns
                 combo = self.mapping_table.cellWidget(row, col)
                 if combo:
                     combo.setEnabled(False)
+            # Disable per-row action button
+            action_btn = self.mapping_table.cellWidget(row, 7)
+            if action_btn:
+                action_btn.setEnabled(False)
 
         self.ai_status.setText("🔄 Starting AI analysis...")
         self.ai_status.setStyleSheet("color: blue;")
@@ -1970,12 +2143,16 @@ class ColumnMappingPage(QWizardPage):
         self.save_config_btn.setEnabled(True)
         self.load_config_btn.setEnabled(True)
 
-        # Re-enable all dropdowns
+        # Re-enable all dropdowns and action buttons
         for row in range(self.mapping_table.rowCount()):
             for col in range(2, 7):
                 combo = self.mapping_table.cellWidget(row, col)
                 if combo:
                     combo.setEnabled(True)
+            # Re-enable per-row action button
+            action_btn = self.mapping_table.cellWidget(row, 7)
+            if action_btn:
+                action_btn.setEnabled(True)
 
         # Remove progress bar
         ai_group = self.ai_detect_btn.parent()
@@ -2024,12 +2201,16 @@ class ColumnMappingPage(QWizardPage):
         self.save_config_btn.setEnabled(True)
         self.load_config_btn.setEnabled(True)
 
-        # Re-enable all dropdowns
+        # Re-enable all dropdowns and action buttons
         for row in range(self.mapping_table.rowCount()):
             for col in range(2, 7):
                 combo = self.mapping_table.cellWidget(row, col)
                 if combo:
                     combo.setEnabled(True)
+            # Re-enable per-row action button
+            action_btn = self.mapping_table.cellWidget(row, 7)
+            if action_btn:
+                action_btn.setEnabled(True)
 
         # Remove progress bar
         ai_group = self.ai_detect_btn.parent()

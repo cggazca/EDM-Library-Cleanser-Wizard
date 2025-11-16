@@ -4028,8 +4028,20 @@ class SupplyFrameReviewPage(QWizardPage):
                     if mfg:
                         canonical_mfgs.add(mfg)
 
-        # Store the canonical manufacturer list for future use
+        # Track manufacturers from USER-SELECTED matches (review phase work)
+        # These are manufacturers the user specifically chose during review
+        selected_mfgs = set()
+        for result in self.search_results:
+            if result.get('selected_match'):
+                if '@' in result['selected_match']:
+                    _, mfg = result['selected_match'].split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        selected_mfgs.add(mfg)
+
+        # Store both lists for future use
         self.canonical_manufacturers = sorted(list(canonical_mfgs))
+        self.selected_manufacturers = sorted(list(selected_mfgs))  # User's review work
 
         if not original_mfgs or not canonical_mfgs:
             self.norm_status.setText("No manufacturer variations detected")
@@ -4085,14 +4097,39 @@ class SupplyFrameReviewPage(QWizardPage):
                 # Original MFG (read-only)
                 self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-                # Normalize To (editable combo box with canonical manufacturers prioritized)
+                # Normalize To (editable combo box with color-coded manufacturers)
                 normalize_combo = QComboBox()
                 normalize_combo.setEditable(True)
-                # Prioritize canonical manufacturers from PAS in dropdown
-                normalize_combo.addItems(self.canonical_manufacturers)
-                # Add any remaining original names not in canonical list
+
+                # Use QStandardItemModel for color coding
+                from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
+                model = QStandardItemModel()
+
+                # Add canonical manufacturers with color coding
+                for mfg in self.canonical_manufacturers:
+                    item = QStandardItem(mfg)
+                    # Color-code manufacturers from user's review selections
+                    if mfg in self.selected_manufacturers:
+                        # GREEN for user-selected manufacturers (their review work)
+                        item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
+                        item.setToolTip("✓ Selected from review phase - preserves your work")
+                        # Make it bold
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    else:
+                        # Normal black for other canonical manufacturers
+                        item.setToolTip("Canonical manufacturer from PAS database")
+                    model.appendRow(item)
+
+                # Add original names not in canonical list (in gray)
                 for mfg in sorted(original_mfgs - canonical_mfgs):
-                    normalize_combo.addItem(mfg)
+                    item = QStandardItem(mfg)
+                    item.setForeground(QBrush(QColor(128, 128, 128)))  # Gray
+                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
+                    model.appendRow(item)
+
+                normalize_combo.setModel(model)
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
@@ -4882,6 +4919,17 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
         self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         norm_layout.addWidget(self.norm_table)
+
+        # Color legend for dropdown
+        legend_label = QLabel(
+            "<b>Normalize To dropdown colors:</b> "
+            "<span style='color: green; font-weight: bold;'>● Green/Bold</span> = Your review selections (preserves your work) | "
+            "<span style='color: black;'>● Black</span> = PAS canonical manufacturers | "
+            "<span style='color: gray;'>● Gray</span> = Original names (not in PAS)"
+        )
+        legend_label.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px; font-size: 9pt;")
+        legend_label.setWordWrap(True)
+        norm_layout.addWidget(legend_label)
 
         # Save button
         save_norm_layout = QHBoxLayout()
@@ -5766,6 +5814,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Collect all unique manufacturers from both sources
         all_mfgs = set()
+        canonical_mfgs = set()
+        selected_mfgs = set()  # User-selected manufacturers from review phase
 
         # From original data
         xml_gen_page = self.wizard().page(3)
@@ -5774,19 +5824,30 @@ class SupplyFrameReviewPage(QWizardPage):
                 if row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
-        # From SearchAndAssign (SupplyFrame canonical names)
-        for part in self.search_assign_data:
-            if part.get('selected_match') and '@' in part['selected_match']:
-                _, mfg = part['selected_match'].split('@', 1)
-                all_mfgs.add(mfg)
+        # From search results - collect canonical and selected manufacturers
+        if hasattr(self, 'search_results'):
+            for result in self.search_results:
+                # Collect all canonical manufacturers from matches
+                for match in result.get('matches', []):
+                    if '@' in match:
+                        _, mfg = match.split('@', 1)
+                        mfg = mfg.strip()
+                        if mfg:
+                            canonical_mfgs.add(mfg)
+                            all_mfgs.add(mfg)
+
+                # Track user-selected manufacturers (their review work)
+                if result.get('selected_match') and '@' in result['selected_match']:
+                    _, mfg = result['selected_match'].split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        selected_mfgs.add(mfg)
+                        all_mfgs.add(mfg)
 
         # From normalization suggestions
         for original, canonical in normalizations.items():
             all_mfgs.add(original)
             all_mfgs.add(canonical)
-
-        # Sort manufacturers for easier selection
-        sorted_mfgs = sorted(list(all_mfgs))
 
         # Populate normalization table
         self.norm_table.setRowCount(len(normalizations))
@@ -5801,10 +5862,37 @@ class SupplyFrameReviewPage(QWizardPage):
             # Original MFG (read-only)
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
-            # Normalize To (editable combo box)
+            # Normalize To (editable combo box with color-coded manufacturers)
             normalize_combo = QComboBox()
             normalize_combo.setEditable(True)
-            normalize_combo.addItems(sorted_mfgs)
+
+            # Use QStandardItemModel for color coding
+            from PyQt5.QtGui import QStandardItemModel, QStandardItem, QBrush
+            model = QStandardItemModel()
+
+            # Add all manufacturers with color coding
+            for mfg in sorted(all_mfgs):
+                item = QStandardItem(mfg)
+
+                # Color-code based on source
+                if mfg in selected_mfgs:
+                    # GREEN for user-selected manufacturers (their review work)
+                    item.setForeground(QBrush(QColor(0, 128, 0)))  # Dark green
+                    item.setToolTip("✓ Selected from review phase - preserves your work")
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                elif mfg in canonical_mfgs:
+                    # Normal black for other canonical manufacturers
+                    item.setToolTip("Canonical manufacturer from PAS database")
+                else:
+                    # Gray for original names
+                    item.setForeground(QBrush(QColor(128, 128, 128)))
+                    item.setToolTip("Original manufacturer name (not in PAS canonical list)")
+
+                model.appendRow(item)
+
+            normalize_combo.setModel(model)
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 

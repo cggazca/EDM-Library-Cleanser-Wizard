@@ -25,7 +25,7 @@ try:
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
         QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu,
-        QTabWidget, QButtonGroup
+        QTabWidget, QButtonGroup, QSpinBox
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -297,6 +297,37 @@ class StartPage(QWizardPage):
         output_layout.addLayout(folder_layout)
         output_group.setLayout(output_layout)
         layout.addWidget(output_group)
+
+        # Advanced Settings section
+        advanced_group = QGroupBox("⚙️ Advanced Settings")
+        advanced_layout = QVBoxLayout()
+
+        # Max matches per part setting
+        max_matches_layout = QHBoxLayout()
+        max_matches_label = QLabel("Max Matches per Part:")
+        max_matches_label.setMinimumWidth(150)
+        max_matches_label.setToolTip(
+            "Maximum number of matches to display for parts with multiple matches.\n"
+            "Lower values make the UI faster but may hide some options.\n"
+            "Higher values show more options but may slow down the UI."
+        )
+        max_matches_layout.addWidget(max_matches_label)
+        
+        self.max_matches_spinner = QSpinBox()
+        self.max_matches_spinner.setMinimum(5)
+        self.max_matches_spinner.setMaximum(100)
+        self.max_matches_spinner.setValue(10)  # Default to 10
+        self.max_matches_spinner.setSuffix(" matches")
+        self.max_matches_spinner.setToolTip(
+            "Recommended: 10-25 for best performance\n"
+            "Default: 10 (original behavior)"
+        )
+        max_matches_layout.addWidget(self.max_matches_spinner)
+        max_matches_layout.addStretch()
+        advanced_layout.addLayout(max_matches_layout)
+
+        advanced_group.setLayout(advanced_layout)
+        layout.addWidget(advanced_group)
 
         # Skip AI section
         skip_layout = QHBoxLayout()
@@ -698,6 +729,10 @@ class StartPage(QWizardPage):
     def get_selected_model(self):
         """Get the selected Claude model"""
         return self.model_selector.currentData()  # Returns the model ID
+
+    def get_max_matches(self):
+        """Get the maximum number of matches to display per part"""
+        return self.max_matches_spinner.value()
 
 
 class AccessExportThread(QThread):
@@ -2576,10 +2611,14 @@ class PASSearchPage(QWizardPage):
                 )
                 return
 
+            # Get max matches setting from StartPage
+            max_matches = start_page.get_max_matches() if hasattr(start_page, 'get_max_matches') else 10
+            
             # Create PAS client and store it as instance variable for re-search functionality
             self.pas_client = PASAPIClient(
                 client_id=pas_creds['client_id'],
-                client_secret=pas_creds['client_secret']
+                client_secret=pas_creds['client_secret'],
+                max_matches=max_matches
             )
 
             # Disable button and show progress
@@ -3560,7 +3599,7 @@ class PASSearchThread(QThread):
 class PASAPIClient:
     """Part Aggregation Service API Client"""
     
-    def __init__(self, client_id, client_secret):
+    def __init__(self, client_id, client_secret, max_matches=10):
         """Initialize PAS API client with credentials"""
         self.client_id = client_id
         self.client_secret = client_secret
@@ -3568,6 +3607,7 @@ class PASAPIClient:
         self.auth_url = "https://samauth.us-east-1.sws.siemens.com/token"
         self.access_token = None
         self.token_expires_at = None
+        self.max_matches = max_matches  # Maximum matches to display per part
         
     def _get_access_token(self):
         """Get or refresh the access token"""
@@ -3921,7 +3961,8 @@ class PASAPIClient:
             mfg = part.get('manufacturerName', '')
             matches.append(f"{mpn}@{mfg}")
 
-        return {'matches': matches[:10]}, match_type
+        # Limit matches to user-configured maximum (default 10)
+        return {'matches': matches[:self.max_matches]}, match_type
 
 
 class SupplyFrameReviewPage(QWizardPage):
@@ -4398,6 +4439,12 @@ class SupplyFrameReviewPage(QWizardPage):
             elif category == "Need Review":
                 self.need_review_label = review_label
         
+        # Add color legend for all interactive tabs
+        if show_actions or show_actions == "editable":
+            legend_label = QLabel("<span style='background-color: #C8FFFF; padding: 2px 5px;'>█</span> Re-searched from None")
+            legend_label.setStyleSheet("color: #666; font-size: 9pt;")
+            parts_header_layout.addWidget(legend_label)
+        
         parts_header_layout.addStretch()
         left_layout.addLayout(parts_header_layout)
         
@@ -4654,6 +4701,15 @@ class SupplyFrameReviewPage(QWizardPage):
             table.setItem(row_idx, 0, pn_item)
             table.setItem(row_idx, 1, mfg_item)
             table.setItem(row_idx, 2, status_item)
+            
+            # Color-code re-searched parts that moved from None to other categories
+            if part.get('re_searched') and part.get('original_status') == 'None':
+                # Light cyan background to indicate this part was re-searched from None
+                from PyQt5.QtGui import QColor
+                highlight_color = QColor(200, 255, 255)  # Light cyan
+                pn_item.setBackground(highlight_color)
+                mfg_item.setBackground(highlight_color)
+                status_item.setBackground(highlight_color)
 
             if show_actions == "editable":
                 # Add Re-search button for None tab
@@ -4710,6 +4766,12 @@ class SupplyFrameReviewPage(QWizardPage):
         # Get the part data
         part = self.none_parts[row_idx]
 
+        # Store original values if not already stored (for tracking in search_results)
+        if 'original_pn' not in part:
+            part['original_pn'] = part.get('PartNumber', '')
+        if 'original_mfg' not in part:
+            part['original_mfg'] = part.get('ManufacturerName', '')
+
         # Update the part data with new values
         part['PartNumber'] = new_pn
         part['ManufacturerName'] = new_mfg
@@ -4742,6 +4804,10 @@ class SupplyFrameReviewPage(QWizardPage):
             # Update the part data
             part['MatchStatus'] = status
             part['matches'] = match_result.get('matches', [])
+            
+            # Mark as re-searched so we can color-code it
+            part['re_searched'] = True
+            part['original_status'] = 'None'
 
             # Update the table to show new status
             status_item = self.none_table.item(row_idx, 2)

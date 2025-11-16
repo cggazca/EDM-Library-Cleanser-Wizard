@@ -4003,9 +4003,112 @@ class SupplyFrameReviewPage(QWizardPage):
 
 
     def identify_normalization_candidates(self):
-        """Identify manufacturers that need normalization"""
-        # Placeholder - will detect variations in manufacturer names
-        pass
+        """Identify manufacturers that need normalization using fuzzy matching"""
+        if not FUZZYWUZZY_AVAILABLE:
+            self.norm_status.setText("⚠ Fuzzy matching not available (install fuzzywuzzy)")
+            return
+
+        # Collect all manufacturer names from search results
+        original_mfgs = set()
+        canonical_mfgs = set()
+
+        # From original data in all search results
+        for result in self.search_results:
+            mfg = result.get('ManufacturerName', '').strip()
+            if mfg:
+                original_mfgs.add(mfg)
+
+        # From PAS search matches (these are canonical manufacturer names from SupplyFrame)
+        for result in self.search_results:
+            for match in result.get('matches', []):
+                if '@' in match:
+                    _, mfg = match.split('@', 1)
+                    mfg = mfg.strip()
+                    if mfg:
+                        canonical_mfgs.add(mfg)
+
+        if not original_mfgs or not canonical_mfgs:
+            self.norm_status.setText("No manufacturer variations detected")
+            return
+
+        # Use fuzzy matching to find variations
+        normalizations = {}
+        reasoning_map = {}
+
+        for original in original_mfgs:
+            # Find best match in canonical names using fuzzy matching
+            best_match = None
+            best_score = 0
+
+            # Try to find a match in canonical names
+            result = process.extractOne(original, canonical_mfgs, scorer=fuzz.ratio)
+            if result:
+                match_name, score = result[0], result[1]
+
+                # Only suggest normalization if:
+                # 1. Names are different (not exact match)
+                # 2. Score is high enough (>= 85) to suggest they're the same manufacturer
+                if original != match_name and score >= 85:
+                    normalizations[original] = match_name
+                    reasoning_map[original] = {
+                        'method': 'fuzzy',
+                        'score': score,
+                        'reasoning': f"Fuzzy match score: {score}% similarity"
+                    }
+
+        # If we found variations, populate the table
+        if normalizations:
+            self.manufacturer_normalizations = normalizations
+            self.normalization_reasoning = reasoning_map
+
+            # Collect all manufacturers for dropdown
+            all_mfgs = sorted(list(original_mfgs | canonical_mfgs))
+
+            # Populate normalization table
+            self.norm_table.setRowCount(len(normalizations))
+
+            row_idx = 0
+            for original, canonical in normalizations.items():
+                # Include checkbox (checked by default)
+                include_cb = QCheckBox()
+                include_cb.setChecked(True)
+                self.norm_table.setCellWidget(row_idx, 0, include_cb)
+
+                # Original MFG (read-only)
+                self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
+
+                # Normalize To (editable combo box)
+                normalize_combo = QComboBox()
+                normalize_combo.setEditable(True)
+                normalize_combo.addItems(all_mfgs)
+                normalize_combo.setCurrentText(canonical)
+                self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
+
+                # Scope dropdown
+                scope_combo = QComboBox()
+                scope_combo.addItems(["All Catalogs", "Per Catalog"])
+                self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+
+                row_idx += 1
+
+            # Update status and enable buttons
+            self.norm_status.setText(f"✓ Found {len(normalizations)} manufacturer variations (fuzzy matching)")
+            self.norm_status.setStyleSheet("color: green; font-weight: bold;")
+            self.save_normalizations_btn.setEnabled(True)
+
+            # Enable AI button if API key is available for additional validation
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            if api_key and ANTHROPIC_AVAILABLE:
+                self.ai_normalize_btn.setEnabled(True)
+        else:
+            self.norm_status.setText("No manufacturer variations detected")
+
+            # Still enable AI button if available
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            if api_key and ANTHROPIC_AVAILABLE:
+                self.ai_normalize_btn.setEnabled(True)
 
     def create_review_section_widget(self):
         """Section 2: Review Partial Matches - Tabbed by Match Status"""

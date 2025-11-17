@@ -3321,7 +3321,7 @@ Only return the JSON, no other text."""
 
 
 class ManufacturerNormalizationAIThread(QThread):
-    """Background thread for hybrid fuzzy+AI manufacturer normalization"""
+    """Background thread for pure AI manufacturer normalization"""
     progress = pyqtSignal(str)
     finished = pyqtSignal(dict, dict)  # (normalizations, reasoning_map)
     error = pyqtSignal(str)
@@ -3334,62 +3334,30 @@ class ManufacturerNormalizationAIThread(QThread):
 
     def run(self):
         try:
-            # Phase 1: Fuzzy matching pre-filter
-            self.progress.emit("🔍 Phase 1: Fuzzy matching analysis...")
-            fuzzy_matches = {}
+            normalizations = {}
             reasoning_map = {}
 
-            if FUZZYWUZZY_AVAILABLE and self.supplyframe_manufacturers:
-                for user_mfg in self.all_manufacturers:
-                    # Find best match in SupplyFrame manufacturers
-                    best_match = process.extractOne(
-                        user_mfg,
-                        self.supplyframe_manufacturers,
-                        scorer=fuzz.token_sort_ratio
-                    )
-
-                    if best_match:
-                        canonical, score = best_match[0], best_match[1]
-
-                        # High confidence matches (>90%): auto-accept
-                        if score >= 90 and user_mfg != canonical:
-                            fuzzy_matches[user_mfg] = canonical
-                            reasoning_map[user_mfg] = {
-                                'method': 'fuzzy',
-                                'score': score,
-                                'reasoning': f"High confidence fuzzy match ({score}% similarity)"
-                            }
-                        # Medium confidence matches (70-89%): send to AI for validation
-                        elif 70 <= score < 90 and user_mfg != canonical:
-                            # Will be validated by AI in phase 2
-                            pass
-
-            self.progress.emit(f"✓ Phase 1 complete: {len(fuzzy_matches)} high-confidence matches found")
-
-            # Phase 2: AI analysis for ambiguous cases
+            # Pure AI analysis - no fuzzy matching pre-filter
             if ANTHROPIC_AVAILABLE and self.api_key:
-                self.progress.emit("🤖 Phase 2: AI validation of ambiguous cases...")
+                self.progress.emit("🤖 AI analyzing all manufacturers...")
 
-                # Collect manufacturers that weren't auto-matched by fuzzy
-                unmatched_mfgs = [m for m in self.all_manufacturers if m not in fuzzy_matches]
-
-                if unmatched_mfgs:
+                if self.all_manufacturers:
                     client = Anthropic(api_key=self.api_key)
 
-                    # Create prompt for AI to analyze remaining manufacturers
+                    # Create prompt for AI to analyze ALL manufacturers
                     prompt = f"""Analyze these manufacturer names and detect variations that should be normalized.
 
 Manufacturers needing analysis:
-{json.dumps(sorted(unmatched_mfgs), indent=2)}
+{json.dumps(sorted(self.all_manufacturers), indent=2)}
 
-SupplyFrame canonical manufacturer names (prefer these):
+PAS/SupplyFrame canonical manufacturer names (prefer these):
 {json.dumps(sorted(self.supplyframe_manufacturers), indent=2)}
 
 Instructions:
 1. Identify manufacturer name variations (e.g., "TI" vs "Texas Instruments")
 2. Detect abbreviations, acquired companies, and alternate spellings
-3. Map each variation to the canonical SupplyFrame name when available
-4. For companies not in SupplyFrame, suggest the most complete/official name
+3. Map each variation to the canonical PAS/SupplyFrame name when available
+4. For companies not in PAS, suggest the most complete/official name
 5. IMPORTANT: For each mapping, provide a brief reasoning (acquisitions, abbreviations, etc.)
 6. CRITICAL: Ensure all string values are properly escaped for JSON (escape quotes, newlines, backslashes)
 
@@ -3407,13 +3375,13 @@ Return ONLY valid JSON with this structure:
 }}
 
 IMPORTANT:
-- Only include entries that need normalization
+- Only include entries that need normalization (skip exact matches already canonical)
 - Return ONLY valid JSON, no markdown, no other text
 - Ensure all quotes inside strings are escaped with backslash"""
 
                     response = client.messages.create(
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=2048,
+                        model="claude-sonnet-4-5-20250929",
+                        max_tokens=4096,
                         messages=[{"role": "user", "content": prompt}]
                     )
 
@@ -3444,8 +3412,8 @@ IMPORTANT:
                             try:
                                 ai_result = json.loads(json_match.group())
                             except:
-                                # If all parsing fails, return empty results for AI phase
-                                self.progress.emit("⚠️ Could not parse AI response, using fuzzy matches only")
+                                # If all parsing fails, return empty results
+                                self.progress.emit("⚠️ Could not parse AI response")
                                 ai_result = {"normalizations": {}, "reasoning": {}}
                         else:
                             ai_result = {"normalizations": {}, "reasoning": {}}
@@ -3453,21 +3421,21 @@ IMPORTANT:
                     ai_normalizations = ai_result.get('normalizations', {})
                     ai_reasoning = ai_result.get('reasoning', {})
 
-                    # Merge AI results with fuzzy matches
+                    # Store AI results
                     for variation, canonical in ai_normalizations.items():
-                        fuzzy_matches[variation] = canonical
+                        normalizations[variation] = canonical
                         reasoning_map[variation] = {
                             'method': 'ai',
                             'reasoning': ai_reasoning.get(variation, 'AI suggested normalization')
                         }
 
                     if ai_normalizations:
-                        self.progress.emit(f"✓ Phase 2 complete: {len(ai_normalizations)} AI-validated matches")
+                        self.progress.emit(f"✓ AI analysis complete: {len(ai_normalizations)} normalizations detected")
                     else:
-                        self.progress.emit("✓ Phase 2 complete: No additional AI matches")
+                        self.progress.emit("✓ AI analysis complete: No normalizations suggested")
 
-            # Emit combined results
-            self.finished.emit(fuzzy_matches, reasoning_map)
+            # Emit results
+            self.finished.emit(normalizations, reasoning_map)
 
         except Exception as e:
             self.error.emit(str(e))
@@ -5349,9 +5317,14 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # AI button
         ai_layout = QHBoxLayout()
-        self.ai_normalize_btn = QPushButton("🤖 AI Detect Manufacturer Variations")
+        self.ai_normalize_btn = QPushButton("🤖 AI Detect Normalizations")
         self.ai_normalize_btn.clicked.connect(self.ai_detect_normalizations)
         self.ai_normalize_btn.setEnabled(False)
+        self.ai_normalize_btn.setToolTip(
+            "Use Claude AI to analyze ALL manufacturers and detect variations.\n"
+            "AI will identify abbreviations, acquisitions, and alternate spellings.\n"
+            "This is pure AI analysis - not fuzzy matching."
+        )
         ai_layout.addWidget(self.ai_normalize_btn)
 
         self.norm_status = QLabel("")
@@ -6214,6 +6187,15 @@ class SupplyFrameReviewPage(QWizardPage):
         elif part in self.need_review_parts:
             self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
 
+        # If this part is currently selected, refresh the matches display to show AI scores
+        selected_rows = self.parts_list.selectedIndexes()
+        if selected_rows:
+            row_idx = selected_rows[0].row()
+            if row_idx < len(self.parts_needing_review):
+                selected_part = self.parts_needing_review[row_idx]
+                if selected_part is part:
+                    self.refresh_matches_display()
+
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""
         applied = 0
@@ -6313,7 +6295,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.ai_norm_thread.start()
 
     def on_ai_norm_finished(self, normalizations, reasoning_map):
-        """Apply hybrid fuzzy+AI normalization suggestions"""
+        """Apply pure AI normalization suggestions"""
         self.manufacturer_normalizations = normalizations
         self.normalization_reasoning = reasoning_map  # Store reasoning for context menu
 
@@ -6938,19 +6920,27 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Apply manufacturer normalizations
             if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:
+                normalizations_applied = 0
                 for row_idx in range(self.norm_table.rowCount()):
                     include_checkbox = self.norm_table.cellWidget(row_idx, 0)
                     if include_checkbox and include_checkbox.isChecked():
                         original_item = self.norm_table.item(row_idx, 1)
-                        canonical_item = self.norm_table.item(row_idx, 2)
+                        normalize_combo = self.norm_table.cellWidget(row_idx, 2)
 
-                        if original_item and canonical_item:
+                        if original_item and normalize_combo:
                             original_mfg = original_item.text()
-                            canonical_mfg = canonical_item.text()
+                            canonical_mfg = normalize_combo.currentText()
 
                             # Apply normalization
                             if 'MFG' in new_data.columns:
-                                new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+                                matches = (new_data['MFG'] == original_mfg).sum()
+                                if matches > 0:
+                                    new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+                                    normalizations_applied += 1
+                                    print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows)")
+
+                if normalizations_applied > 0:
+                    print(f"DEBUG: Applied {normalizations_applied} manufacturer normalizations")
 
             # Read existing sheets from output Excel
             with pd.ExcelFile(output_excel) as xls:

@@ -3383,6 +3383,7 @@ IMPORTANT:
                     response = client.messages.create(
                         model="claude-sonnet-4-5-20250929",
                         max_tokens=4096,
+                        temperature=0,  # Ensure consistent results
                         messages=[{"role": "user", "content": prompt}]
                     )
 
@@ -3972,6 +3973,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.normalization_scopes = {}  # Store selected sheets for each normalization row {row_idx: [sheet1, sheet2, ...]}
         self.original_data = []  # Store original data for comparison
         self.api_key = None
+        self.ai_cache = {}  # Cache AI normalization results to ensure consistency
         
         # Initialize categorized parts lists
         self.found_parts = []
@@ -4330,7 +4332,14 @@ class SupplyFrameReviewPage(QWizardPage):
                 # Uncheck exact matches (original == canonical, no change needed)
                 # Check fuzzy matches and manual review items
                 include_cb.setChecked(method != 'exact' and original != canonical)
-                self.norm_table.setCellWidget(row_idx, 0, include_cb)
+
+                # Create a widget to center the checkbox
+                checkbox_widget = QWidget()
+                checkbox_layout = QHBoxLayout(checkbox_widget)
+                checkbox_layout.addWidget(include_cb)
+                checkbox_layout.setAlignment(Qt.AlignCenter)
+                checkbox_layout.setContentsMargins(0, 0, 0, 0)
+                self.norm_table.setCellWidget(row_idx, 0, checkbox_widget)
 
                 # Original MFG (read-only)
                 self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
@@ -4352,10 +4361,46 @@ class SupplyFrameReviewPage(QWizardPage):
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
+                # Status column - show the method
+                status_map = {
+                    'exact': 'Exact',
+                    'fuzzy': 'Fuzzy',
+                    'ai': 'AI',
+                    'manual': 'Manual'
+                }
+                status_text = status_map.get(method, 'Manual')
+                score = reasoning_map.get(original, {}).get('score', 0)
+                if method == 'fuzzy' and score > 0:
+                    status_text += f" ({score}%)"
+                status_item = QTableWidgetItem(status_text)
+                status_item.setTextAlignment(Qt.AlignCenter)
+                self.norm_table.setItem(row_idx, 3, status_item)
+
+                # AI Analyze button
+                ai_btn = QPushButton("🤖 AI")
+                ai_btn.setMaximumWidth(60)
+                ai_btn.setToolTip("Run AI analysis for this manufacturer")
+                ai_btn.clicked.connect(lambda checked, r=row_idx, orig=original: self.analyze_single_manufacturer_ai(r, orig))
+
+                # Disable if no API key available
+                start_page = self.wizard().page(0)
+                api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+                if not api_key or not ANTHROPIC_AVAILABLE:
+                    ai_btn.setEnabled(False)
+                    ai_btn.setToolTip("AI analysis not available (no API key)")
+
+                # Center the button in the cell
+                ai_btn_widget = QWidget()
+                ai_btn_layout = QHBoxLayout(ai_btn_widget)
+                ai_btn_layout.addWidget(ai_btn)
+                ai_btn_layout.setAlignment(Qt.AlignCenter)
+                ai_btn_layout.setContentsMargins(0, 0, 0, 0)
+                self.norm_table.setCellWidget(row_idx, 4, ai_btn_widget)
+
                 # Scope dropdown
                 scope_combo = QComboBox()
                 scope_combo.addItems(["All Catalogs", "Per Catalog"])
-                self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+                self.norm_table.setCellWidget(row_idx, 5, scope_combo)
 
                 row_idx += 1
 
@@ -5340,8 +5385,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Normalization table
         self.norm_table = QTableWidget()
-        self.norm_table.setColumnCount(4)
-        self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
+        self.norm_table.setColumnCount(6)
+        self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Status", "AI Analyze", "Scope"])
         self.norm_table.setSortingEnabled(True)  # Enable sorting
         self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
@@ -5351,7 +5396,9 @@ class SupplyFrameReviewPage(QWizardPage):
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include - fit to checkbox
         header.setSectionResizeMode(1, QHeaderView.Stretch)  # Original MFG
         header.setSectionResizeMode(2, QHeaderView.Stretch)  # Normalize To
-        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Scope
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Status
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Analyze button
+        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Scope
         
         norm_layout.addWidget(self.norm_table)
 
@@ -5360,6 +5407,7 @@ class SupplyFrameReviewPage(QWizardPage):
             "<b>Instructions:</b> Review each manufacturer. "
             "Uncheck 'Include' to skip normalization. "
             "Edit 'Normalize To' dropdown to change suggestion. "
+            "Use 'AI Analyze' button for individual AI suggestions. "
             "Right-click rows to see detection reasoning.<br><br>"
             "<b>Color Legend:</b> "
             "<span style='background-color: #E6FFE6; padding: 2px 5px;'>Green</span> = Exact match | "
@@ -6325,6 +6373,14 @@ class SupplyFrameReviewPage(QWizardPage):
         self.manufacturer_normalizations = normalizations
         self.normalization_reasoning = reasoning_map  # Store reasoning for context menu
 
+        # Populate AI cache with bulk results for consistency
+        for original, canonical in normalizations.items():
+            if original not in self.ai_cache:  # Don't overwrite existing cache
+                self.ai_cache[original] = {
+                    'canonical': canonical,
+                    'reasoning': reasoning_map.get(original, {}).get('reasoning', 'AI suggested normalization')
+                }
+
         # Collect all unique manufacturers from both sources
         all_mfgs = set()
         canonical_mfgs = set()
@@ -6425,6 +6481,45 @@ class SupplyFrameReviewPage(QWizardPage):
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
+            # Status column - show the method
+            if has_suggestion:
+                method = reasoning_map.get(original, {}).get('method', 'manual')
+                status_map = {
+                    'exact': 'Exact',
+                    'fuzzy': 'Fuzzy',
+                    'ai': 'AI',
+                    'manual': 'Manual'
+                }
+                status_text = status_map.get(method, 'Manual')
+            else:
+                status_text = 'No Change'
+                method = 'no_change'
+
+            status_item = QTableWidgetItem(status_text)
+            status_item.setTextAlignment(Qt.AlignCenter)
+            self.norm_table.setItem(row_idx, 3, status_item)
+
+            # AI Analyze button
+            ai_btn = QPushButton("🤖 AI")
+            ai_btn.setMaximumWidth(60)
+            ai_btn.setToolTip("Run AI analysis for this manufacturer")
+            ai_btn.clicked.connect(lambda checked, r=row_idx, orig=original: self.analyze_single_manufacturer_ai(r, orig))
+
+            # Disable if no API key available
+            start_page = self.wizard().page(0)
+            api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+            if not api_key or not ANTHROPIC_AVAILABLE:
+                ai_btn.setEnabled(False)
+                ai_btn.setToolTip("AI analysis not available (no API key)")
+
+            # Center the button in the cell
+            ai_btn_widget = QWidget()
+            ai_btn_layout = QHBoxLayout(ai_btn_widget)
+            ai_btn_layout.addWidget(ai_btn)
+            ai_btn_layout.setAlignment(Qt.AlignCenter)
+            ai_btn_layout.setContentsMargins(0, 0, 0, 0)
+            self.norm_table.setCellWidget(row_idx, 4, ai_btn_widget)
+
             # Scope dropdown with catalog selection
             scope_combo = NoScrollComboBox()
             scope_combo.addItem("All Catalogs", "all")
@@ -6432,11 +6527,10 @@ class SupplyFrameReviewPage(QWizardPage):
             # For now, add a placeholder - could be enhanced to dynamically list catalogs
             scope_combo.addItem("Specific Sheets...", "specific")
             scope_combo.currentIndexChanged.connect(lambda idx, row=row_idx: self.on_scope_changed(row, idx))
-            self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+            self.norm_table.setCellWidget(row_idx, 5, scope_combo)
 
             # Color-code the row based on state
             if has_suggestion:
-                method = reasoning_map.get(original, {}).get('method', 'manual')
                 if original == canonical:
                     # Exact match - light green
                     bg_color = QColor(230, 255, 230)
@@ -6452,9 +6546,9 @@ class SupplyFrameReviewPage(QWizardPage):
             else:
                 # No change needed - very light gray
                 bg_color = QColor(248, 248, 248)
-            
+
             # Apply color to all cells in the row
-            for col in range(1, 3):  # Original MFG and Normalize To columns
+            for col in range(1, 4):  # Original MFG, Normalize To, and Status columns
                 item = self.norm_table.item(row_idx, col)
                 if item:
                     item.setBackground(bg_color)
@@ -6494,9 +6588,161 @@ class SupplyFrameReviewPage(QWizardPage):
 
         QMessageBox.critical(self, "AI Error", f"AI normalization failed:\n{error_msg}")
 
+    def analyze_single_manufacturer_ai(self, row_idx, original_mfg):
+        """Analyze a single manufacturer using AI with caching"""
+        if not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available", "Claude AI package not installed.")
+            return
+
+        start_page = self.wizard().page(0)
+        api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+        if not api_key:
+            QMessageBox.warning(self, "No API Key", "Please configure Claude AI API key in Step 1.")
+            return
+
+        # Check cache first
+        if original_mfg in self.ai_cache:
+            cached_result = self.ai_cache[original_mfg]
+            QMessageBox.information(
+                self,
+                "Cached Result",
+                f"Using cached AI result for '{original_mfg}':\n\n"
+                f"Suggested normalization: {cached_result['canonical']}\n\n"
+                f"Reasoning: {cached_result['reasoning']}"
+            )
+            # Update the table with cached result
+            self.update_table_row_with_ai_result(row_idx, original_mfg, cached_result['canonical'], cached_result['reasoning'])
+            return
+
+        # Collect canonical manufacturer names from PAS
+        canonical_mfgs = set()
+        if hasattr(self, 'search_results'):
+            for result in self.search_results:
+                for match in result.get('matches', []):
+                    if '@' in match:
+                        _, mfg = match.split('@', 1)
+                        mfg = mfg.strip()
+                        if mfg:
+                            canonical_mfgs.add(mfg)
+
+        try:
+            # Call AI for single manufacturer
+            from anthropic import Anthropic
+            client = Anthropic(api_key=api_key)
+
+            prompt = f"""Analyze this manufacturer name and suggest a normalized form.
+
+Manufacturer to analyze: "{original_mfg}"
+
+PAS/SupplyFrame canonical manufacturer names (prefer these if applicable):
+{json.dumps(sorted(canonical_mfgs), indent=2)}
+
+Instructions:
+1. If this manufacturer name matches or is a variation of a PAS canonical name, use that
+2. If it's an abbreviation, expand it to the full company name
+3. If it's an acquired company, map to the parent company
+4. If it's already correct and complete, use the same name
+5. Provide brief reasoning for your decision
+
+Return ONLY valid JSON with this structure:
+{{
+    "canonical_name": "Suggested Manufacturer Name",
+    "reasoning": "Brief explanation of why this normalization is suggested"
+}}
+
+IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
+
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=1024,
+                temperature=0,  # Ensure consistent results
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = response.content[0].text.strip()
+
+            # Clean up code blocks
+            if response_text.startswith('```'):
+                parts = response_text.split('```')
+                if len(parts) >= 2:
+                    response_text = parts[1]
+                    if response_text.startswith('json'):
+                        response_text = response_text[4:]
+                    response_text = response_text.strip()
+
+            # Parse JSON
+            import re
+            try:
+                ai_result = json.loads(response_text)
+            except json.JSONDecodeError:
+                # Try to extract JSON object
+                json_match = re.search(r'\{[\s\S]*\}', response_text)
+                if json_match:
+                    ai_result = json.loads(json_match.group())
+                else:
+                    raise ValueError("Could not parse AI response")
+
+            canonical_name = ai_result.get('canonical_name', original_mfg)
+            reasoning = ai_result.get('reasoning', 'AI suggested normalization')
+
+            # Cache the result
+            self.ai_cache[original_mfg] = {
+                'canonical': canonical_name,
+                'reasoning': reasoning
+            }
+
+            # Update the table row
+            self.update_table_row_with_ai_result(row_idx, original_mfg, canonical_name, reasoning)
+
+            QMessageBox.information(
+                self,
+                "AI Analysis Complete",
+                f"Manufacturer: {original_mfg}\n\n"
+                f"Suggested normalization: {canonical_name}\n\n"
+                f"Reasoning: {reasoning}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "AI Error", f"AI analysis failed:\n{str(e)}")
+
+    def update_table_row_with_ai_result(self, row_idx, original_mfg, canonical_name, reasoning):
+        """Update a table row with AI analysis result"""
+        # Update the "Normalize To" combo box
+        normalize_combo = self.norm_table.cellWidget(row_idx, 2)
+        if normalize_combo:
+            normalize_combo.setCurrentText(canonical_name)
+
+        # Update the Status column
+        status_item = QTableWidgetItem("AI")
+        status_item.setTextAlignment(Qt.AlignCenter)
+        self.norm_table.setItem(row_idx, 3, status_item)
+
+        # Update the reasoning map
+        self.normalization_reasoning[original_mfg] = {
+            'method': 'ai',
+            'reasoning': reasoning
+        }
+
+        # Update the normalizations dict
+        self.manufacturer_normalizations[original_mfg] = canonical_name
+
+        # Check the Include checkbox if normalization is different
+        include_widget = self.norm_table.cellWidget(row_idx, 0)
+        if include_widget:
+            checkbox = include_widget.findChild(QCheckBox)
+            if checkbox and original_mfg != canonical_name:
+                checkbox.setChecked(True)
+
+        # Update row color to blue (AI suggestion)
+        bg_color = QColor(230, 240, 255)
+        for col in range(1, 4):  # Original MFG, Normalize To, and Status columns
+            item = self.norm_table.item(row_idx, col)
+            if item:
+                item.setBackground(bg_color)
+
     def on_scope_changed(self, row_idx, combo_idx):
         """Handle scope dropdown changes"""
-        scope_combo = self.norm_table.cellWidget(row_idx, 3)
+        scope_combo = self.norm_table.cellWidget(row_idx, 5)
         if not scope_combo:
             return
 
@@ -6668,13 +6914,16 @@ class SupplyFrameReviewPage(QWizardPage):
             # Step 2: Apply manufacturer normalizations
             for row_idx in range(self.norm_table.rowCount()):
                 # Check if this normalization is included
-                include_checkbox = self.norm_table.cellWidget(row_idx, 0)
+                include_widget = self.norm_table.cellWidget(row_idx, 0)
+                if not include_widget:
+                    continue
+                include_checkbox = include_widget.findChild(QCheckBox)
                 if not include_checkbox or not include_checkbox.isChecked():
                     continue
 
                 variation_item = self.norm_table.item(row_idx, 1)
                 canonical_combo = self.norm_table.cellWidget(row_idx, 2)
-                scope_combo = self.norm_table.cellWidget(row_idx, 3)
+                scope_combo = self.norm_table.cellWidget(row_idx, 5)  # Updated from 3 to 5
 
                 if not variation_item or not canonical_combo or not scope_combo:
                     continue
@@ -7011,9 +7260,11 @@ class SupplyFrameReviewPage(QWizardPage):
         # Count enabled normalizations
         enabled_count = 0
         for row_idx in range(self.norm_table.rowCount()):
-            include_checkbox = self.norm_table.cellWidget(row_idx, 0)
-            if include_checkbox and include_checkbox.isChecked():
-                enabled_count += 1
+            include_widget = self.norm_table.cellWidget(row_idx, 0)
+            if include_widget:
+                include_checkbox = include_widget.findChild(QCheckBox)
+                if include_checkbox and include_checkbox.isChecked():
+                    enabled_count += 1
 
         QMessageBox.information(self, "Normalizations Saved",
                               f"Manufacturer normalization settings saved!\n\n"
@@ -7054,7 +7305,10 @@ class SupplyFrameReviewPage(QWizardPage):
             if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:
                 normalizations_applied = 0
                 for row_idx in range(self.norm_table.rowCount()):
-                    include_checkbox = self.norm_table.cellWidget(row_idx, 0)
+                    include_widget = self.norm_table.cellWidget(row_idx, 0)
+                    if not include_widget:
+                        continue
+                    include_checkbox = include_widget.findChild(QCheckBox)
                     if include_checkbox and include_checkbox.isChecked():
                         original_item = self.norm_table.item(row_idx, 1)
                         normalize_combo = self.norm_table.cellWidget(row_idx, 2)

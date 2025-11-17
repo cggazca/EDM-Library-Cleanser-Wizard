@@ -4509,7 +4509,7 @@ class SupplyFrameReviewPage(QWizardPage):
         parts_table.setSelectionMode(QTableWidget.SingleSelection)
         parts_table.itemSelectionChanged.connect(self.on_part_selected)
         left_layout.addWidget(parts_table)
-        
+
         # Store table reference based on category
         if category == "Found":
             self.found_table = parts_table
@@ -4519,6 +4519,9 @@ class SupplyFrameReviewPage(QWizardPage):
             self.need_review_table = parts_table
         elif category == "None":
             self.none_table = parts_table
+            # Enable context menu for None table to allow reverting changes
+            parts_table.setContextMenuPolicy(Qt.CustomContextMenu)
+            parts_table.customContextMenuRequested.connect(self.show_none_table_context_menu)
         elif category == "Errors":
             self.errors_table = parts_table
         
@@ -4721,6 +4724,16 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Make editable for "editable" mode (None tab)
             if show_actions == "editable":
+                # Store original values if not already stored (for revert functionality)
+                if 'original_pn' not in part:
+                    part['original_pn'] = part.get('PartNumber', 'N/A')
+                if 'original_mfg' not in part:
+                    part['original_mfg'] = part.get('ManufacturerName', 'N/A')
+
+                # Set tooltips showing original values
+                pn_item.setToolTip(f"Original: {part['original_pn']}\nRight-click to revert")
+                mfg_item.setToolTip(f"Original: {part['original_mfg']}\nRight-click to revert")
+
                 pn_item.setFlags(pn_item.flags() | Qt.ItemIsEditable)
                 mfg_item.setFlags(mfg_item.flags() | Qt.ItemIsEditable)
                 status_item.setFlags(status_item.flags() & ~Qt.ItemIsEditable)  # Status not editable
@@ -4911,6 +4924,160 @@ class SupplyFrameReviewPage(QWizardPage):
             if btn:
                 btn.setEnabled(True)
                 btn.setText("🔍 Re-search")
+
+    def show_none_table_context_menu(self, position):
+        """Show context menu for None table cells to allow reverting changes"""
+        # Get the item at the clicked position
+        item = self.none_table.itemAt(position)
+        if not item:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        # Only show menu for MFG PN (col 0) and MFG (col 1) columns
+        if col not in [0, 1]:
+            return
+
+        # Get the part data
+        if row >= len(self.none_parts):
+            return
+
+        part = self.none_parts[row]
+
+        # Check if original values exist
+        has_original_pn = 'original_pn' in part
+        has_original_mfg = 'original_mfg' in part
+
+        if not has_original_pn and not has_original_mfg:
+            return
+
+        # Create context menu
+        menu = QMenu(self)
+
+        # Add revert actions based on which column was clicked
+        if col == 0 and has_original_pn:  # MFG PN column
+            current_pn = part.get('PartNumber', '')
+            original_pn = part['original_pn']
+
+            # Only show revert option if value has changed
+            if current_pn != original_pn:
+                revert_pn_action = menu.addAction(f"⟲ Revert MFG PN to Original")
+                revert_pn_action.setToolTip(f"Change '{current_pn}' back to '{original_pn}'")
+            else:
+                # Show info that it's already at original value
+                info_action = menu.addAction("✓ Already at original value")
+                info_action.setEnabled(False)
+
+        elif col == 1 and has_original_mfg:  # MFG column
+            current_mfg = part.get('ManufacturerName', '')
+            original_mfg = part['original_mfg']
+
+            # Only show revert option if value has changed
+            if current_mfg != original_mfg:
+                revert_mfg_action = menu.addAction(f"⟲ Revert MFG to Original")
+                revert_mfg_action.setToolTip(f"Change '{current_mfg}' back to '{original_mfg}'")
+            else:
+                # Show info that it's already at original value
+                info_action = menu.addAction("✓ Already at original value")
+                info_action.setEnabled(False)
+
+        # Add separator and preview option
+        if menu.actions():
+            menu.addSeparator()
+            preview_action = menu.addAction("👁 Show Original Values")
+
+        # Execute menu and handle selection
+        selected_action = menu.exec_(self.none_table.viewport().mapToGlobal(position))
+
+        if not selected_action:
+            return
+
+        # Handle revert actions
+        if selected_action.text().startswith("⟲ Revert MFG PN"):
+            self.revert_none_field(row, 'pn')
+        elif selected_action.text().startswith("⟲ Revert MFG"):
+            self.revert_none_field(row, 'mfg')
+        elif selected_action.text().startswith("👁 Show Original"):
+            self.show_original_values_preview(row)
+
+    def revert_none_field(self, row_idx, field_type):
+        """Revert a specific field (MFG PN or MFG) back to its original value"""
+        if row_idx >= len(self.none_parts):
+            return
+
+        part = self.none_parts[row_idx]
+
+        if field_type == 'pn':
+            # Revert Part Number
+            if 'original_pn' not in part:
+                return
+
+            original_value = part['original_pn']
+            part['PartNumber'] = original_value
+
+            # Update table cell
+            pn_item = self.none_table.item(row_idx, 0)
+            if pn_item:
+                pn_item.setText(original_value)
+
+            QMessageBox.information(
+                self,
+                "Reverted",
+                f"MFG PN has been reverted to original value:\n'{original_value}'"
+            )
+
+        elif field_type == 'mfg':
+            # Revert Manufacturer
+            if 'original_mfg' not in part:
+                return
+
+            original_value = part['original_mfg']
+            part['ManufacturerName'] = original_value
+
+            # Update table cell
+            mfg_item = self.none_table.item(row_idx, 1)
+            if mfg_item:
+                mfg_item.setText(original_value)
+
+            QMessageBox.information(
+                self,
+                "Reverted",
+                f"MFG has been reverted to original value:\n'{original_value}'"
+            )
+
+    def show_original_values_preview(self, row_idx):
+        """Show a preview dialog with original vs current values"""
+        if row_idx >= len(self.none_parts):
+            return
+
+        part = self.none_parts[row_idx]
+
+        original_pn = part.get('original_pn', 'N/A')
+        original_mfg = part.get('original_mfg', 'N/A')
+        current_pn = part.get('PartNumber', 'N/A')
+        current_mfg = part.get('ManufacturerName', 'N/A')
+
+        # Check if values have changed
+        pn_changed = original_pn != current_pn
+        mfg_changed = original_mfg != current_mfg
+
+        # Build message
+        message = "<b>Original vs Current Values:</b><br><br>"
+        message += "<table border='1' cellpadding='5' cellspacing='0'>"
+        message += "<tr><th>Field</th><th>Original</th><th>Current</th><th>Status</th></tr>"
+
+        # MFG PN row
+        pn_status = "<span style='color: orange;'>Changed</span>" if pn_changed else "<span style='color: green;'>Unchanged</span>"
+        message += f"<tr><td><b>MFG PN</b></td><td>{original_pn}</td><td>{current_pn}</td><td>{pn_status}</td></tr>"
+
+        # MFG row
+        mfg_status = "<span style='color: orange;'>Changed</span>" if mfg_changed else "<span style='color: green;'>Unchanged</span>"
+        message += f"<tr><td><b>MFG</b></td><td>{original_mfg}</td><td>{current_mfg}</td><td>{mfg_status}</td></tr>"
+
+        message += "</table>"
+
+        QMessageBox.information(self, "Original Values Preview", message)
 
     def auto_select_highest_for_category(self, category):
         """Auto-select highest similarity matches for a specific category"""

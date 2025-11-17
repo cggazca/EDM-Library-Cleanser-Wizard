@@ -178,11 +178,15 @@ class SupplyFrameReviewPage(QWizardPage):
             self.load_search_results()
 
         except Exception as e:
+            import traceback
+            error_details = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+            print(f"ERROR: {error_details}")  # Print to console for debugging
             QMessageBox.critical(
                 self,
                 "Error Loading Results",
                 f"Failed to load search results from CSV:\n{str(e)}\n\n"
-                f"File: {csv_path}"
+                f"File: {csv_path}\n\n"
+                f"Details:\n{error_details}"
             )
 
     def load_results_from_csv(self, csv_path):
@@ -923,7 +927,6 @@ class SupplyFrameReviewPage(QWizardPage):
             # Color-code re-searched parts that moved from None to other categories
             if part.get('re_searched') and part.get('original_status') == 'None':
                 # Light cyan background to indicate this part was re-searched from None
-                from PyQt5.QtGui import QColor
                 highlight_color = QColor(200, 255, 255)  # Light cyan
                 pn_item.setBackground(highlight_color)
                 mfg_item.setBackground(highlight_color)

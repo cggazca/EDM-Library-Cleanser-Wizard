@@ -5692,26 +5692,43 @@ class SupplyFrameReviewPage(QWizardPage):
         """Handle part selection - show matches"""
         # Determine which table triggered the selection
         sender = self.sender()
-        
+
         # Default to checking all tables
         parts_list = None
         matches_table = None
         parts_data = None
-        
-        # Check which table has a selection
-        if hasattr(self, 'multiple_table') and self.multiple_table.selectedIndexes():
-            selected_rows = self.multiple_table.selectedIndexes()
-            parts_list = self.multiple_table
-            matches_table = self.multiple_matches_table
-            parts_data = self.multiple_parts
-        elif hasattr(self, 'need_review_table') and self.need_review_table.selectedIndexes():
-            selected_rows = self.need_review_table.selectedIndexes()
-            parts_list = self.need_review_table
-            matches_table = self.need_review_matches_table
-            parts_data = self.need_review_parts
+        selected_rows = None
+
+        # Check which table triggered the selection using sender()
+        # This ensures we use the correct table even if other tables have selections
+        if sender == self.multiple_table:
+            if self.multiple_table.selectedIndexes():
+                selected_rows = self.multiple_table.selectedIndexes()
+                parts_list = self.multiple_table
+                matches_table = self.multiple_matches_table
+                parts_data = self.multiple_parts
+        elif sender == self.need_review_table:
+            if self.need_review_table.selectedIndexes():
+                selected_rows = self.need_review_table.selectedIndexes()
+                parts_list = self.need_review_table
+                matches_table = self.need_review_matches_table
+                parts_data = self.need_review_parts
         else:
-            return
-        
+            # Fallback to checking all tables if sender is not recognized
+            # This handles cases where the method might be called manually
+            if hasattr(self, 'multiple_table') and self.multiple_table.selectedIndexes():
+                selected_rows = self.multiple_table.selectedIndexes()
+                parts_list = self.multiple_table
+                matches_table = self.multiple_matches_table
+                parts_data = self.multiple_parts
+            elif hasattr(self, 'need_review_table') and self.need_review_table.selectedIndexes():
+                selected_rows = self.need_review_table.selectedIndexes()
+                parts_list = self.need_review_table
+                matches_table = self.need_review_matches_table
+                parts_data = self.need_review_parts
+            else:
+                return
+
         if not selected_rows or not parts_data:
             return
 

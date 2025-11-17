@@ -2739,6 +2739,11 @@ class PASSearchPage(QWizardPage):
         self.csv_output_path = self.output_folder / csv_filename
 
         try:
+            # Update UI to indicate saving is in progress
+            self.progress_label.setText("Saving results to CSV...")
+            self.progress_label.setStyleSheet("color: blue; font-weight: bold;")
+            QApplication.processEvents()  # Force UI update
+
             self.save_results_csv()
 
             # Count results

@@ -7637,6 +7637,14 @@ class ComparisonPage(QWizardPage):
 
         filter_layout.addWidget(self.show_all_radio)
         filter_layout.addWidget(self.show_changes_radio)
+
+        # Add source sheet filter
+        filter_layout.addWidget(QLabel("  |  Source Sheet:"))
+        self.source_sheet_filter = QComboBox()
+        self.source_sheet_filter.setMinimumWidth(200)
+        self.source_sheet_filter.currentTextChanged.connect(self.apply_filter)
+        filter_layout.addWidget(self.source_sheet_filter)
+
         filter_layout.addStretch()
 
         summary_layout.addLayout(filter_layout)
@@ -7809,8 +7817,21 @@ class ComparisonPage(QWizardPage):
         max_rows = max(len(self.original_df), len(self.new_df))
 
         changed_count = 0
+        source_sheets = set()
+
         for i in range(max_rows):
             row_changed = False
+            source_sheet = ""
+
+            # Get source sheet from new_df (or original_df if not in new_df)
+            if i < len(self.new_df) and 'Source_Sheet' in self.new_df.columns:
+                source_sheet = str(self.new_df.iloc[i]['Source_Sheet']) if pd.notna(self.new_df.iloc[i]['Source_Sheet']) else ""
+            elif i < len(self.original_df) and 'Source_Sheet' in self.original_df.columns:
+                source_sheet = str(self.original_df.iloc[i]['Source_Sheet']) if pd.notna(self.original_df.iloc[i]['Source_Sheet']) else ""
+
+            if source_sheet:
+                source_sheets.add(source_sheet)
+
             if i < len(self.original_df) and i < len(self.new_df):
                 # Compare each cell (only mapped columns)
                 for col in mapped_columns:
@@ -7827,17 +7848,27 @@ class ComparisonPage(QWizardPage):
 
             self.all_rows.append({
                 'index': i,
-                'changed': row_changed
+                'changed': row_changed,
+                'source_sheet': source_sheet
             })
+
+        # Populate source sheet filter dropdown
+        self.source_sheet_filter.blockSignals(True)  # Prevent triggering filter while populating
+        self.source_sheet_filter.clear()
+        self.source_sheet_filter.addItem("All Source Sheets")
+        for sheet in sorted(source_sheets):
+            self.source_sheet_filter.addItem(sheet)
+        self.source_sheet_filter.blockSignals(False)
 
         # Update summary
         total = len(self.all_rows)
         unchanged = total - changed_count
-        self.summary_label.setText(
+        self.summary_text = (
             f"<b>Total Rows:</b> {total} | "
             f"<b>Changed:</b> {changed_count} ({changed_count/total*100:.1f}%) | "
             f"<b>Unchanged:</b> {unchanged} ({unchanged/total*100:.1f}%)"
         )
+        self.summary_label.setText(self.summary_text)
 
         # Populate tables
         self.populate_tables()
@@ -7852,6 +7883,18 @@ class ComparisonPage(QWizardPage):
             display_rows = [r for r in self.all_rows if r['changed']]
         else:
             display_rows = self.all_rows
+
+        # Filter by source sheet if not "All Source Sheets"
+        selected_source = self.source_sheet_filter.currentText()
+        if selected_source and selected_source != "All Source Sheets":
+            display_rows = [r for r in display_rows if r.get('source_sheet', '') == selected_source]
+
+        # Update summary to show filtered results
+        if hasattr(self, 'summary_text'):
+            filter_info = ""
+            if len(display_rows) < len(self.all_rows):
+                filter_info = f" | <b>Filtered:</b> Showing {len(display_rows)} of {len(self.all_rows)} rows"
+            self.summary_label.setText(self.summary_text + filter_info)
 
         # Set up columns (use only mapped columns)
         columns = list(self.original_df.columns)

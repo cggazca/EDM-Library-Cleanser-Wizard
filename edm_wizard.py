@@ -4177,7 +4177,7 @@ class SupplyFrameReviewPage(QWizardPage):
         results = []
 
         # Group rows by PartNumber+ManufacturerName (since multiple matches create multiple rows)
-        grouped = defaultdict(lambda: {'matches': []})
+        grouped = defaultdict(lambda: {'matches': [], 'lifecycle_data': {}, 'external_ids': {}})
 
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
@@ -4185,20 +4185,31 @@ class SupplyFrameReviewPage(QWizardPage):
                 key = (row['PartNumber'], row['ManufacturerName'])
 
                 # First occurrence - set basic info
-                if not grouped[key]['matches'] and row['MatchValue(PartNumber@ManufacturerName)']:
+                if not grouped[key]['matches']:
                     grouped[key]['PartNumber'] = row['PartNumber']
                     grouped[key]['ManufacturerName'] = row['ManufacturerName']
                     grouped[key]['MatchStatus'] = row['MatchStatus']
 
-                # Add match value if present
-                match_value = row['MatchValue(PartNumber@ManufacturerName)'].strip()
+                # Add match value if present (as dict with lifecycle and external ID)
+                match_value = row.get('MatchValue(PartNumber@ManufacturerName)', '').strip()
                 if match_value:
-                    grouped[key]['matches'].append(match_value)
-                elif not grouped[key]['matches']:
-                    # Empty match (for None/Error status)
-                    grouped[key]['PartNumber'] = row['PartNumber']
-                    grouped[key]['ManufacturerName'] = row['ManufacturerName']
-                    grouped[key]['MatchStatus'] = row['MatchStatus']
+                    # Create match dict with all available fields
+                    match_dict = {
+                        'match_string': match_value,
+                        'lifecycle_status': row.get('Lifecycle_Status', ''),
+                        'lifecycle_code': row.get('Lifecycle_Code', ''),
+                        'external_id': row.get('External_ID', '')
+                    }
+                    # Parse mpn and mfg from match string
+                    if '@' in match_value:
+                        mpn, mfg = match_value.split('@', 1)
+                        match_dict['mpn'] = mpn
+                        match_dict['mfg'] = mfg
+                    else:
+                        match_dict['mpn'] = match_value
+                        match_dict['mfg'] = ''
+                    
+                    grouped[key]['matches'].append(match_dict)
 
         # Convert to list format
         for data in grouped.values():
@@ -4468,14 +4479,14 @@ class SupplyFrameReviewPage(QWizardPage):
                 # Column 3: Normalize To (editable combo box)
                 normalize_combo = QComboBox()
                 normalize_combo.setEditable(True)
+                
+                # Disable mouse wheel to prevent accidental changes while scrolling
+                normalize_combo.wheelEvent = lambda event: event.ignore()
+                normalize_combo.setFocusPolicy(Qt.StrongFocus)
 
-                # Build combined list of all unique manufacturers
-                all_manufacturers = set()
-                all_manufacturers.update(self.canonical_manufacturers)  # PAS canonical names
-                all_manufacturers.update(original_mfgs)  # Original names from data
-
+                # Build list using ONLY PAS canonical manufacturers (from match values)
                 # Sort and add to dropdown
-                for mfg in sorted(all_manufacturers):
+                for mfg in sorted(self.canonical_manufacturers):
                     normalize_combo.addItem(mfg)
 
                 # Set current suggestion
@@ -4514,6 +4525,9 @@ class SupplyFrameReviewPage(QWizardPage):
                 # Column 6: Scope dropdown
                 scope_combo = QComboBox()
                 scope_combo.addItems(["All Catalogs", "Per Catalog"])
+                # Disable mouse wheel to prevent accidental changes while scrolling
+                scope_combo.wheelEvent = lambda event: event.ignore()
+                scope_combo.setFocusPolicy(Qt.StrongFocus)
                 self.norm_table.setCellWidget(row_idx, 6, scope_combo)
 
                 row_idx += 1
@@ -5235,15 +5249,12 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Calculate similarity for each match
             for match in part['matches']:
-                # Parse match: "PartNumber@Manufacturer"
-                if '@' in match:
-                    match_pn, match_mfg = match.split('@', 1)
-                else:
-                    match_pn = match
-                    match_mfg = ""
+                # Use helper method to extract match info (handles both dict and string formats)
+                match_pn, match_mfg, _, _, _, _ = self._get_match_info(match)
 
-                match_pn = match_pn.upper().strip()
-                match_mfg = match_mfg.upper().strip()
+                # Ensure match_pn is a string before calling string methods
+                match_pn = str(match_pn).upper().strip() if match_pn else ""
+                match_mfg = str(match_mfg).upper().strip() if match_mfg else ""
 
                 # Calculate combined similarity (60% part number, 40% manufacturer)
                 pn_similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
@@ -6409,7 +6420,9 @@ class SupplyFrameReviewPage(QWizardPage):
                 part['ai_confidence'] = confidence
                 part['ai_reasoning'] = result.get('reasoning', '')
                 # Store the AI score for this specific match
-                part['ai_match_scores'][suggested_match] = confidence
+                # Use match_string as key (hashable) instead of the dict itself
+                match_key = suggested_match.get('match_string', '') if isinstance(suggested_match, dict) else str(suggested_match)
+                part['ai_match_scores'][match_key] = confidence
 
         # Refresh the appropriate tables
         if part in self.multiple_parts:
@@ -6556,18 +6569,17 @@ class SupplyFrameReviewPage(QWizardPage):
         # From search results - collect canonical and selected manufacturers
         if hasattr(self, 'search_results'):
             for result in self.search_results:
-                # Collect all canonical manufacturers from matches
+                # Collect all canonical manufacturers from matches using helper function
                 for match in result.get('matches', []):
-                    if '@' in match:
-                        _, mfg = match.split('@', 1)
-                        mfg = mfg.strip()
-                        if mfg:
-                            canonical_mfgs.add(mfg)
-                            all_mfgs.add(mfg)
+                    _, mfg, _, _, _, _ = self._get_match_info(match)
+                    mfg = mfg.strip()
+                    if mfg:
+                        canonical_mfgs.add(mfg)
+                        all_mfgs.add(mfg)
 
                 # Track user-selected manufacturers (their review work)
-                if result.get('selected_match') and '@' in result['selected_match']:
-                    _, mfg = result['selected_match'].split('@', 1)
+                if result.get('selected_match'):
+                    _, mfg, _, _, _, _ = self._get_match_info(result['selected_match'])
                     mfg = mfg.strip()
                     if mfg:
                         selected_mfgs.add(mfg)
@@ -6622,24 +6634,10 @@ class SupplyFrameReviewPage(QWizardPage):
             checkbox_layout.setContentsMargins(0, 0, 0, 0)
             self.norm_table.setCellWidget(row_idx, 0, checkbox_widget)
 
-            # Original MFG (read-only)
-            self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
-
-            # Normalize To (editable combo box with simplified dropdown)
-            normalize_combo = NoScrollComboBox()
-            normalize_combo.setEditable(True)
-
-            # Add all unique manufacturers sorted
-            for mfg in sorted(all_mfgs):
-                normalize_combo.addItem(mfg)
-
-            # Set current suggestion
-            normalize_combo.setCurrentText(canonical)
-            self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
-
-            # Status column - show the method
+            # Column 1: Status - show the method (MOVED TO COLUMN 1)
             if has_suggestion:
                 method = reasoning_map.get(original, {}).get('method', 'manual')
+                score = reasoning_map.get(original, {}).get('score', 0)
                 status_map = {
                     'exact': 'Exact',
                     'fuzzy': 'Fuzzy',
@@ -6650,12 +6648,57 @@ class SupplyFrameReviewPage(QWizardPage):
             else:
                 status_text = 'No Change'
                 method = 'no_change'
+                score = 0
 
             status_item = QTableWidgetItem(status_text)
             status_item.setTextAlignment(Qt.AlignCenter)
-            self.norm_table.setItem(row_idx, 3, status_item)
+            
+            # Color code the status
+            if method == 'exact':
+                status_item.setBackground(QColor(230, 255, 230))  # Light green
+            elif method == 'fuzzy':
+                status_item.setBackground(QColor(255, 250, 205))  # Light yellow
+            elif method == 'ai':
+                status_item.setBackground(QColor(230, 240, 255))  # Light blue
+            elif method == 'manual':
+                status_item.setBackground(QColor(255, 240, 200))  # Light orange
+            else:  # no_change
+                status_item.setBackground(QColor(248, 248, 248))  # Very light gray
+            
+            self.norm_table.setItem(row_idx, 1, status_item)
 
-            # AI Analyze button
+            # Column 2: Original MFG (read-only)
+            self.norm_table.setItem(row_idx, 2, QTableWidgetItem(original))
+
+            # Column 3: Normalize To (editable combo box)
+            normalize_combo = QComboBox()
+            normalize_combo.setEditable(True)
+            # Disable mouse wheel
+            normalize_combo.wheelEvent = lambda event: event.ignore()
+            normalize_combo.setFocusPolicy(Qt.StrongFocus)
+
+            # Add only PAS canonical manufacturers
+            if hasattr(self, 'canonical_manufacturers'):
+                for mfg in sorted(self.canonical_manufacturers):
+                    normalize_combo.addItem(mfg)
+            else:
+                # Fallback to all_mfgs if canonical not available
+                for mfg in sorted(all_mfgs):
+                    normalize_combo.addItem(mfg)
+
+            # Set current suggestion
+            normalize_combo.setCurrentText(canonical)
+            self.norm_table.setCellWidget(row_idx, 3, normalize_combo)
+
+            # Column 4: AI Score - show score percentage
+            ai_score_item = QTableWidgetItem("")
+            ai_score_item.setTextAlignment(Qt.AlignCenter)
+            if method in ['fuzzy', 'ai'] and score > 0:
+                ai_score_item.setText(f"{score}%")
+                ai_score_item.setToolTip(f"{method.capitalize()} match confidence: {score}%")
+            self.norm_table.setItem(row_idx, 4, ai_score_item)
+
+            # Column 5: AI Analyze button
             ai_btn = QPushButton("🤖 AI")
             ai_btn.setMaximumWidth(60)
             ai_btn.setToolTip("Run AI analysis for this manufacturer")
@@ -6674,40 +6717,18 @@ class SupplyFrameReviewPage(QWizardPage):
             ai_btn_layout.addWidget(ai_btn)
             ai_btn_layout.setAlignment(Qt.AlignCenter)
             ai_btn_layout.setContentsMargins(0, 0, 0, 0)
-            self.norm_table.setCellWidget(row_idx, 4, ai_btn_widget)
+            self.norm_table.setCellWidget(row_idx, 5, ai_btn_widget)
 
-            # Scope dropdown with catalog selection
-            scope_combo = NoScrollComboBox()
-            scope_combo.addItem("All Catalogs", "all")
-            # Get available catalogs from the data
-            # For now, add a placeholder - could be enhanced to dynamically list catalogs
-            scope_combo.addItem("Specific Sheets...", "specific")
-            scope_combo.currentIndexChanged.connect(lambda idx, row=row_idx: self.on_scope_changed(row, idx))
-            self.norm_table.setCellWidget(row_idx, 5, scope_combo)
+            # Column 6: Scope dropdown
+            scope_combo = QComboBox()
+            scope_combo.addItems(["All Catalogs", "Per Catalog"])
+            # Disable mouse wheel
+            scope_combo.wheelEvent = lambda event: event.ignore()
+            scope_combo.setFocusPolicy(Qt.StrongFocus)
+            self.norm_table.setCellWidget(row_idx, 6, scope_combo)
 
-            # Color-code the row based on state
-            if has_suggestion:
-                if original == canonical:
-                    # Exact match - light green
-                    bg_color = QColor(230, 255, 230)
-                elif method == 'fuzzy':
-                    # Fuzzy suggestion - light yellow
-                    bg_color = QColor(255, 250, 205)
-                elif method == 'ai':
-                    # AI suggestion - light blue
-                    bg_color = QColor(230, 240, 255)
-                else:
-                    # Manual review needed - light orange
-                    bg_color = QColor(255, 240, 200)
-            else:
-                # No change needed - very light gray
-                bg_color = QColor(248, 248, 248)
-
-            # Apply color to all cells in the row
-            for col in range(1, 4):  # Original MFG, Normalize To, and Status columns
-                item = self.norm_table.item(row_idx, col)
-                if item:
-                    item.setBackground(bg_color)
+            # Note: Color coding is already applied to Status column above
+            # No need for additional row color coding
 
             row_idx += 1
 
@@ -6863,15 +6884,16 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
 
     def update_table_row_with_ai_result(self, row_idx, original_mfg, canonical_name, reasoning):
         """Update a table row with AI analysis result"""
-        # Update the "Normalize To" combo box
-        normalize_combo = self.norm_table.cellWidget(row_idx, 2)
+        # Update the "Normalize To" combo box (Column 3)
+        normalize_combo = self.norm_table.cellWidget(row_idx, 3)
         if normalize_combo:
             normalize_combo.setCurrentText(canonical_name)
 
-        # Update the Status column
+        # Update the Status column (Column 1)
         status_item = QTableWidgetItem("AI")
         status_item.setTextAlignment(Qt.AlignCenter)
-        self.norm_table.setItem(row_idx, 3, status_item)
+        status_item.setBackground(QColor(230, 240, 255))  # Light blue for AI
+        self.norm_table.setItem(row_idx, 1, status_item)
 
         # Update the reasoning map
         self.normalization_reasoning[original_mfg] = {
@@ -6889,16 +6911,15 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             if checkbox and original_mfg != canonical_name:
                 checkbox.setChecked(True)
 
-        # Update row color to blue (AI suggestion)
-        bg_color = QColor(230, 240, 255)
-        for col in range(1, 4):  # Original MFG, Normalize To, and Status columns
-            item = self.norm_table.item(row_idx, col)
-            if item:
-                item.setBackground(bg_color)
+        # Update AI Score column
+        ai_score_item = self.norm_table.item(row_idx, 4)
+        if ai_score_item:
+            ai_score_item.setText("")
+            ai_score_item.setToolTip("AI analysis performed")
 
     def on_scope_changed(self, row_idx, combo_idx):
         """Handle scope dropdown changes"""
-        scope_combo = self.norm_table.cellWidget(row_idx, 5)
+        scope_combo = self.norm_table.cellWidget(row_idx, 6)  # Column 6: Scope
         if not scope_combo:
             return
 
@@ -7077,9 +7098,9 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                 if not include_checkbox or not include_checkbox.isChecked():
                     continue
 
-                variation_item = self.norm_table.item(row_idx, 1)
-                canonical_combo = self.norm_table.cellWidget(row_idx, 2)
-                scope_combo = self.norm_table.cellWidget(row_idx, 5)  # Updated from 3 to 5
+                variation_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
+                canonical_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
+                scope_combo = self.norm_table.cellWidget(row_idx, 6)  # Column 6: Scope
 
                 if not variation_item or not canonical_combo or not scope_combo:
                     continue
@@ -7341,8 +7362,8 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
         if row < 0:
             return
 
-        # Get the original manufacturer name from this row
-        original_item = self.norm_table.item(row, 1)
+        # Get the original manufacturer name from this row (Column 2)
+        original_item = self.norm_table.item(row, 2)
         if not original_item:
             return
 
@@ -7369,9 +7390,9 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
 
         # Get canonical name from table
         for row_idx in range(self.norm_table.rowCount()):
-            orig_item = self.norm_table.item(row_idx, 1)
+            orig_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
             if orig_item and orig_item.text() == original_mfg:
-                canonical_combo = self.norm_table.cellWidget(row_idx, 2)
+                canonical_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
                 if canonical_combo:
                     canonical = canonical_combo.currentText()
                     break
@@ -7466,8 +7487,8 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                         continue
                     include_checkbox = include_widget.findChild(QCheckBox)
                     if include_checkbox and include_checkbox.isChecked():
-                        original_item = self.norm_table.item(row_idx, 1)
-                        normalize_combo = self.norm_table.cellWidget(row_idx, 2)
+                        original_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
+                        normalize_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
 
                         if original_item and normalize_combo:
                             original_mfg = original_item.text()

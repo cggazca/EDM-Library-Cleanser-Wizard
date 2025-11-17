@@ -4422,9 +4422,11 @@ class SupplyFrameReviewPage(QWizardPage):
 
             row_idx = 0
             for original, canonical in normalizations.items():
-                # Include checkbox - uncheck exact matches (no change needed), check others
-                include_cb = QCheckBox()
                 method = reasoning_map.get(original, {}).get('method', 'manual')
+                score = reasoning_map.get(original, {}).get('score', 0)
+                
+                # Column 0: Include checkbox - centered
+                include_cb = QCheckBox()
                 # Uncheck exact matches (original == canonical, no change needed)
                 # Check fuzzy matches and manual review items
                 include_cb.setChecked(method != 'exact' and original != canonical)
@@ -4437,10 +4439,33 @@ class SupplyFrameReviewPage(QWizardPage):
                 checkbox_layout.setContentsMargins(0, 0, 0, 0)
                 self.norm_table.setCellWidget(row_idx, 0, checkbox_widget)
 
-                # Original MFG (read-only)
-                self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
+                # Column 1: Status - show the method
+                status_map = {
+                    'exact': 'Exact',
+                    'fuzzy': 'Fuzzy',
+                    'ai': 'AI',
+                    'manual': 'Manual'
+                }
+                status_text = status_map.get(method, 'Manual')
+                status_item = QTableWidgetItem(status_text)
+                status_item.setTextAlignment(Qt.AlignCenter)
+                
+                # Color code the status
+                if method == 'exact':
+                    status_item.setBackground(QColor(230, 255, 230))  # Light green
+                elif method == 'fuzzy':
+                    status_item.setBackground(QColor(255, 250, 205))  # Light yellow
+                elif method == 'ai':
+                    status_item.setBackground(QColor(230, 240, 255))  # Light blue
+                else:  # manual
+                    status_item.setBackground(QColor(255, 240, 200))  # Light orange
+                
+                self.norm_table.setItem(row_idx, 1, status_item)
 
-                # Normalize To (editable combo box with simplified dropdown)
+                # Column 2: Original MFG (read-only)
+                self.norm_table.setItem(row_idx, 2, QTableWidgetItem(original))
+
+                # Column 3: Normalize To (editable combo box)
                 normalize_combo = QComboBox()
                 normalize_combo.setEditable(True)
 
@@ -4455,24 +4480,17 @@ class SupplyFrameReviewPage(QWizardPage):
 
                 # Set current suggestion
                 normalize_combo.setCurrentText(canonical)
-                self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
+                self.norm_table.setCellWidget(row_idx, 3, normalize_combo)
 
-                # Status column - show the method
-                status_map = {
-                    'exact': 'Exact',
-                    'fuzzy': 'Fuzzy',
-                    'ai': 'AI',
-                    'manual': 'Manual'
-                }
-                status_text = status_map.get(method, 'Manual')
-                score = reasoning_map.get(original, {}).get('score', 0)
-                if method == 'fuzzy' and score > 0:
-                    status_text += f" ({score}%)"
-                status_item = QTableWidgetItem(status_text)
-                status_item.setTextAlignment(Qt.AlignCenter)
-                self.norm_table.setItem(row_idx, 3, status_item)
+                # Column 4: AI Score - show score percentage
+                ai_score_item = QTableWidgetItem("")
+                ai_score_item.setTextAlignment(Qt.AlignCenter)
+                if method in ['fuzzy', 'ai'] and score > 0:
+                    ai_score_item.setText(f"{score}%")
+                    ai_score_item.setToolTip(f"{method.capitalize()} match confidence: {score}%")
+                self.norm_table.setItem(row_idx, 4, ai_score_item)
 
-                # AI Analyze button
+                # Column 5: AI Analyze button
                 ai_btn = QPushButton("🤖 AI")
                 ai_btn.setMaximumWidth(60)
                 ai_btn.setToolTip("Run AI analysis for this manufacturer")
@@ -4491,12 +4509,12 @@ class SupplyFrameReviewPage(QWizardPage):
                 ai_btn_layout.addWidget(ai_btn)
                 ai_btn_layout.setAlignment(Qt.AlignCenter)
                 ai_btn_layout.setContentsMargins(0, 0, 0, 0)
-                self.norm_table.setCellWidget(row_idx, 4, ai_btn_widget)
+                self.norm_table.setCellWidget(row_idx, 5, ai_btn_widget)
 
-                # Scope dropdown
+                # Column 6: Scope dropdown
                 scope_combo = QComboBox()
                 scope_combo.addItems(["All Catalogs", "Per Catalog"])
-                self.norm_table.setCellWidget(row_idx, 5, scope_combo)
+                self.norm_table.setCellWidget(row_idx, 6, scope_combo)
 
                 row_idx += 1
 
@@ -5483,8 +5501,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Normalization table
         self.norm_table = QTableWidget()
-        self.norm_table.setColumnCount(6)
-        self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Status", "AI Analyze", "Scope"])
+        self.norm_table.setColumnCount(7)  # Increased from 6 to 7
+        self.norm_table.setHorizontalHeaderLabels(["Include", "Status", "Original MFG", "Normalize To", "AI Score", "AI Analyze", "Scope"])
         self.norm_table.setSortingEnabled(True)  # Enable sorting
         self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
@@ -5492,11 +5510,12 @@ class SupplyFrameReviewPage(QWizardPage):
         # Set column resize modes
         header = self.norm_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include - fit to checkbox
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Original MFG
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Normalize To
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Status
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Analyze button
-        header.setSectionResizeMode(5, QHeaderView.Stretch)  # Scope
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Status
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Original MFG
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Normalize To
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # AI Analyze button
+        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Scope
         
         norm_layout.addWidget(self.norm_table)
 

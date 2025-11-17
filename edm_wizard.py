@@ -4151,6 +4151,41 @@ class SupplyFrameReviewPage(QWizardPage):
             # Invalid format
             return ('', '', '', '', '', '', '')
 
+    @staticmethod
+    def _get_lifecycle_color(lifecycle_status):
+        """
+        Get background color for lifecycle status.
+        Returns QColor based on lifecycle status.
+        """
+        if not lifecycle_status:
+            return None
+
+        # Normalize the status for comparison
+        status_lower = lifecycle_status.lower().strip()
+
+        # Active/Production - Green
+        if any(keyword in status_lower for keyword in ['active', 'production', 'in production']):
+            return QColor(200, 255, 200)  # Light green
+
+        # NRND (Not Recommended for New Designs) - Yellow/Orange
+        elif any(keyword in status_lower for keyword in ['nrnd', 'not recommended', 'decline', 'declining']):
+            return QColor(255, 230, 153)  # Light orange
+
+        # Obsolete/EOL - Red
+        elif any(keyword in status_lower for keyword in ['obsolete', 'eol', 'end of life', 'discontinued', 'last time buy']):
+            return QColor(255, 200, 200)  # Light red
+
+        # Preview/Sampling - Blue
+        elif any(keyword in status_lower for keyword in ['preview', 'sampling', 'pre-production', 'engineering samples']):
+            return QColor(200, 230, 255)  # Light blue
+
+        # Contact Manufacturer / Unknown - Gray
+        elif any(keyword in status_lower for keyword in ['contact', 'manufacturer', 'unknown', 'not available']):
+            return QColor(230, 230, 230)  # Light gray
+
+        # Default - no color
+        return None
+
     def initializePage(self):
         """Initialize by loading data from CSV file created by PASSearchPage"""
         pas_search_page = self.wizard().page(3)  # PASSearchPage is page 3
@@ -4685,8 +4720,9 @@ class SupplyFrameReviewPage(QWizardPage):
             parts_table.setColumnCount(6)
             parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Reviewed", "AI", "Action"])
         else:
-            parts_table.setColumnCount(3)
-            parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status"])
+            # Found tab and other non-interactive tabs - show External ID and Lifecycle Status
+            parts_table.setColumnCount(5)
+            parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status", "Lifecycle Status", "External ID"])
 
         # Set column resize modes
         parts_header = parts_table.horizontalHeader()
@@ -4699,6 +4735,10 @@ class SupplyFrameReviewPage(QWizardPage):
             parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
             parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
             parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
+        else:
+            # Found tab and other non-interactive tabs
+            parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Lifecycle Status
+            parts_header.setSectionResizeMode(4, QHeaderView.Stretch)  # External ID
 
         parts_table.setSortingEnabled(True)  # Enable sorting
         parts_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -4984,6 +5024,40 @@ class SupplyFrameReviewPage(QWizardPage):
                     ai_btn.setToolTip("Use AI to suggest best match for this part")
                     ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
                     table.setCellWidget(row_idx, 5, ai_btn)
+            else:
+                # Found tab and other non-interactive tabs - show lifecycle status and external ID
+                # Extract from first match (for Found parts, there should be exactly 1 match)
+                matches = part.get('matches', [])
+                lifecycle_status = ''
+                lifecycle_code = ''
+                external_id = ''
+
+                if matches:
+                    # Get first match (for Found parts, this is the matched part)
+                    match = matches[0]
+                    _, _, lifecycle_status, lifecycle_code, external_id, _, _ = self._get_match_info(match)
+
+                # Lifecycle Status column
+                lifecycle_item = QTableWidgetItem(lifecycle_status or '')
+                lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+                lifecycle_item.setTextAlignment(Qt.AlignCenter)
+                lifecycle_item.setFlags(lifecycle_item.flags() & ~Qt.ItemIsEditable)
+                # Apply color coding based on lifecycle status
+                lifecycle_color = self._get_lifecycle_color(lifecycle_status)
+                if lifecycle_color:
+                    lifecycle_item.setBackground(lifecycle_color)
+                table.setItem(row_idx, 3, lifecycle_item)
+
+                # External ID column
+                external_item = QTableWidgetItem('')
+                if external_id:
+                    # Truncate long URLs for display
+                    display_url = external_id if len(external_id) <= 50 else external_id[:47] + '...'
+                    external_item.setText(display_url)
+                    external_item.setToolTip(f"Click to open: {external_id}")
+                    external_item.setForeground(QColor(0, 0, 255))  # Blue for links
+                external_item.setFlags(external_item.flags() & ~Qt.ItemIsEditable)
+                table.setItem(row_idx, 4, external_item)
 
         print(f"DEBUG: Table populated with {table.rowCount()} rows")
 
@@ -6028,6 +6102,11 @@ class SupplyFrameReviewPage(QWizardPage):
             # Lifecycle Status column
             lifecycle_item = QTableWidgetItem(lifecycle_status or '')
             lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            lifecycle_item.setTextAlignment(Qt.AlignCenter)
+            # Apply color coding based on lifecycle status
+            lifecycle_color = self._get_lifecycle_color(lifecycle_status)
+            if lifecycle_color:
+                lifecycle_item.setBackground(lifecycle_color)
             matches_table.setItem(match_idx, 3, lifecycle_item)
             
             # External ID column (link)
@@ -6130,6 +6209,11 @@ class SupplyFrameReviewPage(QWizardPage):
             # Lifecycle Status column
             lifecycle_item = QTableWidgetItem(lifecycle_status or '')
             lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            lifecycle_item.setTextAlignment(Qt.AlignCenter)
+            # Apply color coding based on lifecycle status
+            lifecycle_color = self._get_lifecycle_color(lifecycle_status)
+            if lifecycle_color:
+                lifecycle_item.setBackground(lifecycle_color)
             self.matches_table.setItem(match_idx, 3, lifecycle_item)
             
             # External ID column (link)

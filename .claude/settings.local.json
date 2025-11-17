@@ -12,7 +12,9 @@
       "Bash(taskkill:*)",
       "Bash(nul)",
       "Bash(find:*)",
-      "Bash(claude doctor)"
+      "Bash(claude doctor)",
+      "Bash(git push:*)",
+      "Bash(git stash pop:*)"
     ],
     "deny": [],
     "ask": []

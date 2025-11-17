@@ -25,7 +25,7 @@ try:
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
         QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu,
-        QTabWidget, QButtonGroup, QSpinBox
+        QTabWidget, QButtonGroup, QSpinBox, QInputDialog
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -86,23 +86,57 @@ class StartPage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("Welcome to EDM Library Wizard")
-        self.setSubTitle("Configure API credentials for intelligent column mapping and part search")
+        self.setTitle("")
+        self.setSubTitle("")
 
-        layout = QVBoxLayout()
+        # Use a scroll area for content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background-color: #005F87; border: none; }")
+        
+        content_widget = QWidget()
+        content_widget.setStyleSheet("QWidget { background-color: #005F87; }")
+        layout = QVBoxLayout(content_widget)
+        layout.setSpacing(15)
+        layout.setContentsMargins(30, 20, 30, 20)
 
-        # AI Info section
-        info_group = QGroupBox("🤖 AI-Powered Column Mapping")
-        info_layout = QVBoxLayout()
-
-        info_text = QLabel(
-            "This wizard can use Claude AI to automatically detect and map your Excel columns.\n"
-            "Enter your Claude API key below to enable AI features, or skip to continue manually."
+        # Header section with branding
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(10)
+        
+        title_label = QLabel("EDM Library Wizard")
+        title_font = QFont("Segoe UI", 22, QFont.Bold)
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("color: white; margin: 0px; padding: 10px; background-color: transparent;")
+        title_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(title_label)
+        
+        subtitle_label = QLabel("Intelligent Library Management for Xpedition Designer")
+        subtitle_font = QFont("Segoe UI", 11)
+        subtitle_label.setFont(subtitle_font)
+        subtitle_label.setStyleSheet("color: #C8E0F0; margin: 0px; padding: 5px; background-color: transparent;")
+        subtitle_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(subtitle_label)
+        
+        siemens_label = QLabel("Powered by Siemens Digital Industries Software")
+        siemens_font = QFont("Segoe UI", 9)
+        siemens_font.setItalic(True)
+        siemens_label.setFont(siemens_font)
+        siemens_label.setStyleSheet("color: #9BC4DD; margin: 0px; padding: 5px 5px 15px 5px; background-color: transparent;")
+        siemens_label.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(siemens_label)
+        
+        layout.addLayout(header_layout)
+        
+        # Add separator
+        separator = QLabel()
+        separator.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #005F87, stop:0.5 white, stop:1 #005F87); "
+            "min-height: 2px; max-height: 2px; margin: 10px 60px;"
         )
-        info_text.setWordWrap(True)
-        info_layout.addWidget(info_text)
-        info_group.setLayout(info_layout)
-        layout.addWidget(info_group)
+        layout.addWidget(separator)
+
 
         # Claude API Key input section
         api_group = QGroupBox("Claude API Configuration")
@@ -338,7 +372,13 @@ class StartPage(QWizardPage):
         layout.addLayout(skip_layout)
 
         layout.addStretch()
-        self.setLayout(layout)
+        
+        # Set the scroll area content and add to page
+        scroll.setWidget(content_widget)
+        page_layout = QVBoxLayout()
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addWidget(scroll)
+        self.setLayout(page_layout)
 
         # Load saved credentials if available
         self.load_saved_credentials()
@@ -3291,8 +3331,13 @@ Only return the JSON, no other text."""
 
     def get_description_for_part(self, part_number, mfg):
         """Find description from combined data"""
-        for row in self.combined_data:
-            if row.get('MFG_PN') == part_number and row.get('MFG') == mfg:
+        # Convert DataFrame to list of dictionaries if needed
+        data = self.combined_data
+        if hasattr(data, 'to_dict'):
+            data = data.to_dict('records')
+        
+        for row in data:
+            if isinstance(row, dict) and row.get('MFG_PN') == part_number and row.get('MFG') == mfg:
                 return row.get('Description', '')
         return ''
 
@@ -5175,15 +5220,28 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
         self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
-        self.norm_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        
+        # Set column resize modes
+        header = self.norm_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include - fit to checkbox
+        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Original MFG
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Normalize To
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Scope
+        
         norm_layout.addWidget(self.norm_table)
 
-        # Help text
+        # Help text with color legend
         help_label = QLabel(
             "<b>Instructions:</b> Review each manufacturer. "
             "Uncheck 'Include' to skip normalization. "
             "Edit 'Normalize To' dropdown to change suggestion. "
-            "Right-click rows to see detection reasoning."
+            "Right-click rows to see detection reasoning.<br><br>"
+            "<b>Color Legend:</b> "
+            "<span style='background-color: #E6FFE6; padding: 2px 5px;'>Green</span> = Exact match | "
+            "<span style='background-color: #FFFACD; padding: 2px 5px;'>Yellow</span> = Fuzzy match | "
+            "<span style='background-color: #E6F0FF; padding: 2px 5px;'>Blue</span> = AI suggestion | "
+            "<span style='background-color: #FFF0C8; padding: 2px 5px;'>Orange</span> = Manual review | "
+            "<span style='background-color: #F8F8F8; padding: 2px 5px;'>Gray</span> = No change needed"
         )
         help_label.setStyleSheet("padding: 5px; background-color: #f0f0f0; border-radius: 3px; font-size: 9pt;")
         help_label.setWordWrap(True)
@@ -6155,18 +6213,49 @@ class SupplyFrameReviewPage(QWizardPage):
             all_mfgs.add(original)
             all_mfgs.add(canonical)
 
-        # Populate normalization table
-        self.norm_table.setRowCount(len(normalizations))
+        # Get all unique manufacturers from original data (ensure we show EVERYTHING)
+        unique_original_mfgs = set()
+        if hasattr(xml_gen_page, 'combined_data'):
+            data = xml_gen_page.combined_data
+            if hasattr(data, 'to_dict'):
+                data = data.to_dict('records')
+            for row in data:
+                if isinstance(row, dict) and row.get('MFG'):
+                    unique_original_mfgs.add(row['MFG'])
+
+        # Create entries for ALL manufacturers (suggestions + no-change entries)
+        all_entries = {}
+        # Add all original manufacturers with identity mapping (no change by default)
+        for mfg in unique_original_mfgs:
+            all_entries[mfg] = mfg
+        # Override with AI/fuzzy suggestions where available
+        for original, canonical in normalizations.items():
+            all_entries[original] = canonical
+
+        # Populate normalization table with ALL manufacturers
+        self.norm_table.setRowCount(len(all_entries))
 
         row_idx = 0
-        for original, canonical in normalizations.items():
-            # Include checkbox - uncheck exact matches (no change needed), check others
+        for original, canonical in sorted(all_entries.items()):
+            # Include checkbox - center it in the cell
             include_cb = QCheckBox()
-            method = reasoning_map.get(original, {}).get('method', 'manual')
-            # Uncheck exact matches (original == canonical, no change needed)
-            # Check fuzzy/AI matches and manual review items
-            include_cb.setChecked(method != 'exact' and original != canonical)
-            self.norm_table.setCellWidget(row_idx, 0, include_cb)
+            # Check if this is from AI/fuzzy suggestions (in normalizations dict)
+            has_suggestion = original in normalizations
+            if has_suggestion:
+                method = reasoning_map.get(original, {}).get('method', 'manual')
+                # Check fuzzy/AI matches, uncheck exact matches and identity mappings
+                include_cb.setChecked(method != 'exact' and original != canonical)
+            else:
+                # Identity mapping (no change) - uncheck by default
+                include_cb.setChecked(False)
+            
+            # Create a widget to center the checkbox
+            checkbox_widget = QWidget()
+            checkbox_layout = QHBoxLayout(checkbox_widget)
+            checkbox_layout.addWidget(include_cb)
+            checkbox_layout.setAlignment(Qt.AlignCenter)
+            checkbox_layout.setContentsMargins(0, 0, 0, 0)
+            self.norm_table.setCellWidget(row_idx, 0, checkbox_widget)
 
             # Original MFG (read-only)
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
@@ -6183,10 +6272,39 @@ class SupplyFrameReviewPage(QWizardPage):
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
-            # Scope dropdown
+            # Scope dropdown with catalog selection
             scope_combo = QComboBox()
-            scope_combo.addItems(["All Catalogs", "Per Catalog"])
+            scope_combo.addItem("All Catalogs", "all")
+            # Get available catalogs from the data
+            # For now, add a placeholder - could be enhanced to dynamically list catalogs
+            scope_combo.addItem("Specific Catalog...", "specific")
+            scope_combo.currentIndexChanged.connect(lambda idx, row=row_idx: self.on_scope_changed(row, idx))
             self.norm_table.setCellWidget(row_idx, 3, scope_combo)
+
+            # Color-code the row based on state
+            if has_suggestion:
+                method = reasoning_map.get(original, {}).get('method', 'manual')
+                if original == canonical:
+                    # Exact match - light green
+                    bg_color = QColor(230, 255, 230)
+                elif method == 'fuzzy':
+                    # Fuzzy suggestion - light yellow
+                    bg_color = QColor(255, 250, 205)
+                elif method == 'ai':
+                    # AI suggestion - light blue
+                    bg_color = QColor(230, 240, 255)
+                else:
+                    # Manual review needed - light orange
+                    bg_color = QColor(255, 240, 200)
+            else:
+                # No change needed - very light gray
+                bg_color = QColor(248, 248, 248)
+            
+            # Apply color to all cells in the row
+            for col in range(1, 3):  # Original MFG and Normalize To columns
+                item = self.norm_table.item(row_idx, col)
+                if item:
+                    item.setBackground(bg_color)
 
             row_idx += 1
 
@@ -6195,18 +6313,20 @@ class SupplyFrameReviewPage(QWizardPage):
         ai_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'ai')
         exact_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'exact')
         manual_count = sum(1 for v in reasoning_map.values() if v.get('method') == 'manual')
+        no_change_count = len(all_entries) - len(normalizations)
 
         self.norm_status.setText(
-            f"✓ Showing {len(normalizations)} manufacturers: "
-            f"{exact_count} exact matches, {fuzzy_count} fuzzy, {ai_count} AI-validated, {manual_count} manual review"
+            f"✓ Showing all {len(all_entries)} manufacturers: "
+            f"{no_change_count} no change, {exact_count} exact, {fuzzy_count} fuzzy, {ai_count} AI-validated, {manual_count} manual"
         )
         self.norm_status.setStyleSheet("color: green; font-weight: bold;")
         self.ai_normalize_btn.setEnabled(True)
         self.save_normalizations_btn.setEnabled(True)
 
         QMessageBox.information(self, "Normalization Detection Complete",
-                              f"Analysis complete! Showing all {len(normalizations)} manufacturers:\n\n"
-                              f"• {exact_count} exact matches (no changes needed)\n"
+                              f"Analysis complete! Showing all {len(all_entries)} manufacturers:\n\n"
+                              f"• {no_change_count} already correct (no changes needed)\n"
+                              f"• {exact_count} exact matches in PAS\n"
                               f"• {fuzzy_count} fuzzy match suggestions\n"
                               f"• {ai_count} AI-validated suggestions\n"
                               f"• {manual_count} need manual review\n\n"
@@ -6220,6 +6340,32 @@ class SupplyFrameReviewPage(QWizardPage):
         self.ai_normalize_btn.setEnabled(True)
 
         QMessageBox.critical(self, "AI Error", f"AI normalization failed:\n{error_msg}")
+
+    def on_scope_changed(self, row_idx, combo_idx):
+        """Handle scope dropdown changes"""
+        scope_combo = self.norm_table.cellWidget(row_idx, 3)
+        if not scope_combo:
+            return
+        
+        scope_data = scope_combo.currentData()
+        if scope_data == "specific":
+            # User selected "Specific Catalog..." - show catalog selection dialog
+            catalogs = ["Catalog1", "Catalog2", "Catalog3"]  # TODO: Get actual catalogs from data
+            catalog, ok = QInputDialog.getItem(
+                self, 
+                "Select Catalog",
+                "Choose which catalog to apply this normalization to:",
+                catalogs,
+                0,
+                False
+            )
+            if ok and catalog:
+                # Store the specific catalog choice
+                scope_combo.setItemData(combo_idx, catalog)
+                scope_combo.setItemText(combo_idx, f"Catalog: {catalog}")
+            else:
+                # User cancelled - revert to "All Catalogs"
+                scope_combo.setCurrentIndex(0)
 
     def apply_changes(self):
         """Apply all changes and generate comparison"""
@@ -7072,51 +7218,211 @@ class EDMWizard(QWizard):
         # Set size policy to allow expansion
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Apply styling
+        # Apply Xpedition Designer professional CAD-grade styling
         self.setStyleSheet("""
+            /* Main wizard - CAD-grade professional with teal background */
             QWizard {
-                background-color: #f5f5f5;
+                background-color: #005F87;
             }
+            
+            QWizardPage {
+                background-color: #005F87;
+            }
+            
+            /* Group boxes - flat modern design with subtle borders */
             QGroupBox {
-                font-weight: bold;
-                border: 2px solid #cccccc;
-                border-radius: 5px;
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 10pt;
+                font-weight: 600;
+                border: 1px solid #C5CFD6;
+                border-radius: 6px;
                 margin-top: 10px;
-                padding-top: 10px;
+                padding-top: 12px;
+                background-color: white;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
+                left: 12px;
+                padding: 0 6px;
+                color: #005F87;
             }
+            
+            /* Buttons - Xpedition deep teal */
             QPushButton {
-                padding: 5px 15px;
-                background-color: #0078d7;
+                font-family: "Segoe UI", Arial, sans-serif;
+                padding: 7px 18px;
+                background-color: #005F87;
                 color: white;
                 border: none;
-                border-radius: 3px;
-                min-width: 80px;
+                border-radius: 5px;
+                min-width: 90px;
+                font-weight: 500;
+                font-size: 9pt;
             }
             QPushButton:hover {
-                background-color: #005a9e;
+                background-color: #0077A8;
+            }
+            QPushButton:pressed {
+                background-color: #004666;
             }
             QPushButton:disabled {
-                background-color: #cccccc;
+                background-color: #D0D5DA;
+                color: #8A9199;
             }
+            
+            /* Input fields - minimal clean design */
             QLineEdit {
-                padding: 5px;
-                border: 1px solid #cccccc;
-                border-radius: 3px;
+                font-family: "Segoe UI", Arial, sans-serif;
+                padding: 6px 8px;
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 9pt;
             }
+            QLineEdit:focus {
+                border: 1px solid #005F87;
+                background-color: #FAFBFC;
+            }
+            
+            QComboBox {
+                font-family: "Segoe UI", Arial, sans-serif;
+                padding: 5px 8px;
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 9pt;
+            }
+            QComboBox:focus {
+                border: 1px solid #005F87;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            
+            QSpinBox {
+                font-family: "Segoe UI", Arial, sans-serif;
+                padding: 5px 8px;
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 9pt;
+            }
+            QSpinBox:focus {
+                border: 1px solid #005F87;
+            }
+            
+            /* Tables - clean engineering aesthetic */
             QTableWidget {
-                border: 1px solid #cccccc;
-                gridline-color: #e0e0e0;
+                font-family: "Segoe UI", Arial, sans-serif;
+                border: 1px solid #C5CFD6;
+                gridline-color: #E8EBED;
+                background-color: white;
+                alternate-background-color: #F8F9FA;
+                font-size: 9pt;
             }
             QHeaderView::section {
-                background-color: #e0e0e0;
-                padding: 5px;
-                border: 1px solid #cccccc;
-                font-weight: bold;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #005F87, stop:1 #004A6B);
+                color: white;
+                padding: 6px 8px;
+                border: none;
+                border-right: 1px solid #004A6B;
+                border-bottom: 1px solid #004A6B;
+                font-weight: 600;
+                font-size: 9pt;
+            }
+            
+            /* Tab widget - flat professional */
+            QTabWidget::pane {
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: white;
+                top: -1px;
+            }
+            QTabBar::tab {
+                font-family: "Segoe UI", Arial, sans-serif;
+                background-color: #E8EBED;
+                color: #4A5660;
+                padding: 8px 16px;
+                border: 1px solid #C5CFD6;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
+                font-weight: 500;
+                font-size: 9pt;
+            }
+            QTabBar::tab:selected {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #005F87, stop:1 #004A6B);
+                color: white;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #D4DDE3;
+            }
+            
+            /* Labels - engineering typography */
+            QLabel {
+                font-family: "Segoe UI", Arial, sans-serif;
+                color: #2C3E50;
+                font-size: 9pt;
+            }
+            
+            /* Checkboxes - clean minimal */
+            QCheckBox {
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 9pt;
+                spacing: 6px;
+                color: #2C3E50;
+            }
+            
+            /* Progress bars - subtle and clean */
+            QProgressBar {
+                font-family: "Segoe UI", Arial, sans-serif;
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: #F5F7F8;
+                text-align: center;
+                font-weight: 500;
+                font-size: 9pt;
+                color: #2C3E50;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                          stop:0 #005F87, stop:1 #0077A8);
+                border-radius: 3px;
+            }
+            
+            /* Scroll bars - minimal modern */
+            QScrollBar:vertical {
+                border: none;
+                background: #F5F7F8;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #C5CFD6;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #005F87;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            /* Text edit areas */
+            QTextEdit {
+                font-family: "Segoe UI", Arial, sans-serif;
+                border: 1px solid #C5CFD6;
+                border-radius: 4px;
+                background-color: white;
+                font-size: 9pt;
+            }
+            QTextEdit:focus {
+                border: 1px solid #005F87;
             }
         """)
 

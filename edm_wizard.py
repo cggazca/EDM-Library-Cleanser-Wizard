@@ -6947,19 +6947,27 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Apply manufacturer normalizations
             if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:
+                normalizations_applied = 0
                 for row_idx in range(self.norm_table.rowCount()):
                     include_checkbox = self.norm_table.cellWidget(row_idx, 0)
                     if include_checkbox and include_checkbox.isChecked():
                         original_item = self.norm_table.item(row_idx, 1)
-                        canonical_item = self.norm_table.item(row_idx, 2)
+                        normalize_combo = self.norm_table.cellWidget(row_idx, 2)
 
-                        if original_item and canonical_item:
+                        if original_item and normalize_combo:
                             original_mfg = original_item.text()
-                            canonical_mfg = canonical_item.text()
+                            canonical_mfg = normalize_combo.currentText()
 
                             # Apply normalization
                             if 'MFG' in new_data.columns:
-                                new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+                                matches = (new_data['MFG'] == original_mfg).sum()
+                                if matches > 0:
+                                    new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+                                    normalizations_applied += 1
+                                    print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows)")
+
+                if normalizations_applied > 0:
+                    print(f"DEBUG: Applied {normalizations_applied} manufacturer normalizations")
 
             # Read existing sheets from output Excel
             with pd.ExcelFile(output_excel) as xls:

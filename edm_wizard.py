@@ -7634,24 +7634,49 @@ class ComparisonPage(QWizardPage):
         except Exception as e:
             self.summary_label.setText(f"❌ Error loading data: {str(e)}")
 
+    def get_mapped_columns(self):
+        """Get only the mapped columns from Column Mapping step"""
+        # These are the standard column names after combination
+        mapped_columns = ['MFG', 'MFG_PN', 'Part_Number', 'Description', 'Source_Sheet']
+
+        # Only include columns that exist in the dataframes
+        available_columns = []
+        all_cols = set(self.original_df.columns) | set(self.new_df.columns)
+        for col in mapped_columns:
+            if col in all_cols:
+                available_columns.append(col)
+
+        return available_columns
+
+    def get_display_column_name(self, col):
+        """Convert internal column name to user-friendly display name"""
+        display_names = {
+            'MFG': 'MFG',
+            'MFG_PN': 'MFG PN',
+            'Part_Number': 'Part Number',
+            'Description': 'Description',
+            'Source_Sheet': 'Source Sheet'
+        }
+        return display_names.get(col, col)
+
     def build_comparison(self):
         """Build side-by-side comparison with Beyond Compare styling"""
         if self.original_df is None or self.new_df is None:
             return
 
-        # Ensure both DataFrames have the same columns
-        all_columns = list(set(self.original_df.columns) | set(self.new_df.columns))
+        # Get only the mapped columns to display
+        mapped_columns = self.get_mapped_columns()
 
-        # Add missing columns
-        for col in all_columns:
+        # Ensure both DataFrames have the same columns (only mapped ones)
+        for col in mapped_columns:
             if col not in self.original_df.columns:
                 self.original_df[col] = ""
             if col not in self.new_df.columns:
                 self.new_df[col] = ""
 
-        # Reorder columns to match
-        self.original_df = self.original_df[all_columns]
-        self.new_df = self.new_df[all_columns]
+        # Filter to only show mapped columns
+        self.original_df = self.original_df[mapped_columns]
+        self.new_df = self.new_df[mapped_columns]
 
         # Build row comparison data
         self.all_rows = []
@@ -7661,8 +7686,8 @@ class ComparisonPage(QWizardPage):
         for i in range(max_rows):
             row_changed = False
             if i < len(self.original_df) and i < len(self.new_df):
-                # Compare each cell
-                for col in all_columns:
+                # Compare each cell (only mapped columns)
+                for col in mapped_columns:
                     old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
                     new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
                     if old_val != new_val:
@@ -7702,12 +7727,14 @@ class ComparisonPage(QWizardPage):
         else:
             display_rows = self.all_rows
 
-        # Set up columns
+        # Set up columns (use only mapped columns)
         columns = list(self.original_df.columns)
+        display_headers = [self.get_display_column_name(col) for col in columns]
+
         self.left_table.setColumnCount(len(columns))
-        self.left_table.setHorizontalHeaderLabels(columns)
+        self.left_table.setHorizontalHeaderLabels(display_headers)
         self.right_table.setColumnCount(len(columns))
-        self.right_table.setHorizontalHeaderLabels(columns)
+        self.right_table.setHorizontalHeaderLabels(display_headers)
 
         # Set row counts
         self.left_table.setRowCount(len(display_rows))

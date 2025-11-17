@@ -25,7 +25,8 @@ try:
         QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QComboBox,
         QGroupBox, QMessageBox, QTextEdit, QProgressBar, QSpacerItem,
         QSizePolicy, QGridLayout, QWidget, QSplitter, QScrollArea, QMenu,
-        QTabWidget, QButtonGroup, QSpinBox, QInputDialog
+        QTabWidget, QButtonGroup, QSpinBox, QInputDialog, QDialog,
+        QListWidget, QListWidgetItem, QDialogButtonBox
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSettings
     from PyQt5.QtGui import QFont, QIcon, QColor
@@ -3968,6 +3969,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.parts_needing_review = []
         self.manufacturer_normalizations = {}
         self.normalization_reasoning = {}  # Store fuzzy/AI reasoning for each normalization
+        self.normalization_scopes = {}  # Store selected sheets for each normalization row {row_idx: [sheet1, sheet2, ...]}
         self.original_data = []  # Store original data for comparison
         self.api_key = None
         
@@ -6395,7 +6397,7 @@ class SupplyFrameReviewPage(QWizardPage):
             self.norm_table.setItem(row_idx, 1, QTableWidgetItem(original))
 
             # Normalize To (editable combo box with simplified dropdown)
-            normalize_combo = QComboBox()
+            normalize_combo = NoScrollComboBox()
             normalize_combo.setEditable(True)
 
             # Add all unique manufacturers sorted
@@ -6407,11 +6409,11 @@ class SupplyFrameReviewPage(QWizardPage):
             self.norm_table.setCellWidget(row_idx, 2, normalize_combo)
 
             # Scope dropdown with catalog selection
-            scope_combo = QComboBox()
+            scope_combo = NoScrollComboBox()
             scope_combo.addItem("All Catalogs", "all")
             # Get available catalogs from the data
             # For now, add a placeholder - could be enhanced to dynamically list catalogs
-            scope_combo.addItem("Specific Catalog...", "specific")
+            scope_combo.addItem("Specific Sheets...", "specific")
             scope_combo.currentIndexChanged.connect(lambda idx, row=row_idx: self.on_scope_changed(row, idx))
             self.norm_table.setCellWidget(row_idx, 3, scope_combo)
 
@@ -6480,26 +6482,131 @@ class SupplyFrameReviewPage(QWizardPage):
         scope_combo = self.norm_table.cellWidget(row_idx, 3)
         if not scope_combo:
             return
-        
+
         scope_data = scope_combo.currentData()
         if scope_data == "specific":
-            # User selected "Specific Catalog..." - show catalog selection dialog
-            catalogs = ["Catalog1", "Catalog2", "Catalog3"]  # TODO: Get actual catalogs from data
-            catalog, ok = QInputDialog.getItem(
-                self, 
-                "Select Catalog",
-                "Choose which catalog to apply this normalization to:",
-                catalogs,
-                0,
-                False
-            )
-            if ok and catalog:
-                # Store the specific catalog choice
-                scope_combo.setItemData(combo_idx, catalog)
-                scope_combo.setItemText(combo_idx, f"Catalog: {catalog}")
-            else:
-                # User cancelled - revert to "All Catalogs"
+            # Get available sheets from the combined data
+            xml_gen_page = self.wizard().page(3)
+            available_sheets = []
+
+            if hasattr(xml_gen_page, 'combined_data'):
+                data = xml_gen_page.combined_data
+                if hasattr(data, 'to_dict'):
+                    # DataFrame - get unique Source_Sheet values
+                    if 'Source_Sheet' in data.columns:
+                        available_sheets = sorted(data['Source_Sheet'].unique().tolist())
+                else:
+                    # List of dictionaries
+                    sheet_set = set()
+                    for row in data:
+                        if isinstance(row, dict) and 'Source_Sheet' in row:
+                            sheet_set.add(row['Source_Sheet'])
+                    available_sheets = sorted(list(sheet_set))
+
+            if not available_sheets:
+                QMessageBox.warning(self, "No Sheets Found",
+                                  "Could not find sheet information in the data.\n"
+                                  "Make sure the data has a 'Source_Sheet' column.")
                 scope_combo.setCurrentIndex(0)
+                return
+
+            # Show multi-select dialog
+            selected_sheets = self.show_sheet_selection_dialog(available_sheets, row_idx)
+
+            if selected_sheets:
+                # Store the selected sheets for this row
+                self.normalization_scopes[row_idx] = selected_sheets
+
+                # Update the combo box display
+                if len(selected_sheets) == len(available_sheets):
+                    # All sheets selected - same as "All Catalogs"
+                    scope_combo.setCurrentIndex(0)
+                    if row_idx in self.normalization_scopes:
+                        del self.normalization_scopes[row_idx]
+                else:
+                    # Show abbreviated list of selected sheets
+                    if len(selected_sheets) <= 3:
+                        sheets_text = ", ".join(selected_sheets)
+                    else:
+                        sheets_text = f"{', '.join(selected_sheets[:2])}, +{len(selected_sheets)-2} more"
+
+                    # Update combo text to show selection
+                    scope_combo.setItemText(combo_idx, f"Sheets: {sheets_text}")
+            else:
+                # User cancelled or selected none - revert to "All Catalogs"
+                scope_combo.setCurrentIndex(0)
+                if row_idx in self.normalization_scopes:
+                    del self.normalization_scopes[row_idx]
+
+    def show_sheet_selection_dialog(self, available_sheets, row_idx):
+        """Show a dialog for multi-selecting sheets/catalogs"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Sheets/Catalogs")
+        dialog.setMinimumWidth(400)
+        dialog.setMinimumHeight(300)
+
+        layout = QVBoxLayout(dialog)
+
+        # Instructions
+        label = QLabel("Select which sheets/catalogs to apply this normalization to:")
+        layout.addWidget(label)
+
+        # List widget with checkboxes
+        list_widget = QListWidget()
+
+        # Pre-select previously selected sheets if they exist
+        previously_selected = self.normalization_scopes.get(row_idx, [])
+
+        for sheet in available_sheets:
+            item = QListWidgetItem(sheet)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            # Check if previously selected, otherwise check all by default
+            if previously_selected:
+                item.setCheckState(Qt.Checked if sheet in previously_selected else Qt.Unchecked)
+            else:
+                item.setCheckState(Qt.Checked)  # All selected by default
+            list_widget.addItem(item)
+
+        layout.addWidget(list_widget)
+
+        # Select All / Deselect All buttons
+        button_layout = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        deselect_all_btn = QPushButton("Deselect All")
+
+        def select_all():
+            for i in range(list_widget.count()):
+                list_widget.item(i).setCheckState(Qt.Checked)
+
+        def deselect_all():
+            for i in range(list_widget.count()):
+                list_widget.item(i).setCheckState(Qt.Unchecked)
+
+        select_all_btn.clicked.connect(select_all)
+        deselect_all_btn.clicked.connect(deselect_all)
+
+        button_layout.addWidget(select_all_btn)
+        button_layout.addWidget(deselect_all_btn)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
+        # OK / Cancel buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        # Show dialog
+        if dialog.exec_() == QDialog.Accepted:
+            # Get selected sheets
+            selected = []
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                if item.checkState() == Qt.Checked:
+                    selected.append(item.text())
+            return selected
+
+        return None
 
     def apply_changes(self):
         """Apply all changes and generate comparison"""
@@ -6559,19 +6666,20 @@ class SupplyFrameReviewPage(QWizardPage):
                 canonical = canonical_combo.currentText().strip()
                 scope = scope_combo.currentText()
 
+                # Get selected sheets for this row (if specific sheets were selected)
+                selected_sheets = self.normalization_scopes.get(row_idx, None)
+
                 # Apply normalization based on scope
-                if scope == "All Catalogs":
+                if scope == "All Catalogs" or selected_sheets is None:
                     # Apply to all records with this manufacturer variation
                     for record in new_data:
                         if record['MFG'] == variation:
                             record['MFG'] = canonical
                             normalizations_applied += 1
                 else:
-                    # "Per Catalog" - only apply within this catalog
-                    # Since we're working with a single dataset, treat same as "All Catalogs"
-                    # In a multi-catalog scenario, you'd filter by catalog ID here
+                    # Apply only to records from selected sheets
                     for record in new_data:
-                        if record['MFG'] == variation:
+                        if record['MFG'] == variation and record.get('Source_Sheet') in selected_sheets:
                             record['MFG'] = canonical
                             normalizations_applied += 1
 
@@ -6938,13 +7046,27 @@ class SupplyFrameReviewPage(QWizardPage):
                             original_mfg = original_item.text()
                             canonical_mfg = normalize_combo.currentText()
 
+                            # Get selected sheets for this row (if specific sheets were selected)
+                            selected_sheets = self.normalization_scopes.get(row_idx, None)
+
                             # Apply normalization
                             if 'MFG' in new_data.columns:
-                                matches = (new_data['MFG'] == original_mfg).sum()
-                                if matches > 0:
-                                    new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
-                                    normalizations_applied += 1
-                                    print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows)")
+                                if selected_sheets is None:
+                                    # Apply to all records
+                                    matches = (new_data['MFG'] == original_mfg).sum()
+                                    if matches > 0:
+                                        new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
+                                        normalizations_applied += 1
+                                        print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows, all sheets)")
+                                else:
+                                    # Apply only to records from selected sheets
+                                    if 'Source_Sheet' in new_data.columns:
+                                        mask = (new_data['MFG'] == original_mfg) & (new_data['Source_Sheet'].isin(selected_sheets))
+                                        matches = mask.sum()
+                                        if matches > 0:
+                                            new_data.loc[mask, 'MFG'] = canonical_mfg
+                                            normalizations_applied += 1
+                                            print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows, sheets: {', '.join(selected_sheets)})")
 
                 if normalizations_applied > 0:
                     print(f"DEBUG: Applied {normalizations_applied} manufacturer normalizations")

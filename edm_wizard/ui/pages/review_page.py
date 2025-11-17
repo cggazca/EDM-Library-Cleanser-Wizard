@@ -165,10 +165,12 @@ class SupplyFrameReviewPage(QWizardPage):
             self.search_results = self.load_results_from_csv(csv_path)
 
             # Store original data for comparison later (convert DataFrame to list of dicts)
-            if hasattr(pas_search_page, 'combined_data') and pas_search_page.combined_data is not None:
-                if not pas_search_page.combined_data.empty:
+            # Get combined_data from ColumnMappingPage (page 2), not PAS Search Page
+            column_mapping_page = self.wizard().page(2)  # ColumnMappingPage
+            if hasattr(column_mapping_page, 'combined_data') and column_mapping_page.combined_data is not None:
+                if not column_mapping_page.combined_data.empty:
                     # Convert DataFrame to list of dictionaries for easier processing
-                    self.original_data = pas_search_page.combined_data.to_dict('records')
+                    self.original_data = column_mapping_page.combined_data.to_dict('records')
                 else:
                     self.original_data = []
             else:
@@ -878,6 +880,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
     def populate_category_table(self, table, parts_list, show_actions=True):
         """Populate a category table with parts"""
+        from PyQt5.QtGui import QColor as _QColor  # Explicit local import to avoid scoping issues
         print(f"DEBUG populate_category_table: {len(parts_list)} parts, show_actions={show_actions}")
         table.setRowCount(len(parts_list))
 
@@ -927,7 +930,7 @@ class SupplyFrameReviewPage(QWizardPage):
             # Color-code re-searched parts that moved from None to other categories
             if part.get('re_searched') and part.get('original_status') == 'None':
                 # Light cyan background to indicate this part was re-searched from None
-                highlight_color = QColor(200, 255, 255)  # Light cyan
+                highlight_color = _QColor(200, 255, 255)  # Light cyan
                 pn_item.setBackground(highlight_color)
                 mfg_item.setBackground(highlight_color)
                 status_item.setBackground(highlight_color)
@@ -3078,18 +3081,18 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
     def apply_changes(self):
         """Apply all changes and generate comparison"""
         try:
-            # Get the combined data from XMLGenerationPage (Step 3)
-            prev_page_3 = self.wizard().page(3)  # XMLGenerationPage
-            if not hasattr(prev_page_3, 'combined_data') or prev_page_3.combined_data is None or prev_page_3.combined_data.empty:
+            # Get the combined data from ColumnMappingPage (Step 2)
+            column_mapping_page = self.wizard().page(2)  # ColumnMappingPage
+            if not hasattr(column_mapping_page, 'combined_data') or column_mapping_page.combined_data is None or column_mapping_page.combined_data.empty:
                 QMessageBox.warning(self, "No Data",
-                                  "No combined data available from Step 3.\n"
-                                  "Please complete Step 3 first.")
+                                  "No combined data available from Step 2.\n"
+                                  "Please complete Step 2 first.")
                 return
 
-            # Create a copy of the original data
+            # Create a copy of the original data (convert DataFrame to list of dicts)
             import copy
-            old_data = copy.deepcopy(prev_page_3.combined_data)
-            new_data = copy.deepcopy(prev_page_3.combined_data)
+            old_data = column_mapping_page.combined_data.to_dict('records')
+            new_data = column_mapping_page.combined_data.to_dict('records')
 
             # Track changes for summary
             matches_applied = 0

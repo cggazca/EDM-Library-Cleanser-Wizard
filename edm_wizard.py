@@ -2725,7 +2725,14 @@ class PASSearchPage(QWizardPage):
         # Match Details
         matches = result.get('matches', [])
         if matches:
-            match_details = ', '.join(matches[:3])  # Show first 3 matches
+            # Format matches for display (handles both dict and string formats)
+            match_strings = []
+            for match in matches[:3]:
+                if isinstance(match, dict):
+                    match_strings.append(match.get('match_string', str(match)))
+                else:
+                    match_strings.append(str(match))
+            match_details = ', '.join(match_strings)
             if len(matches) > 3:
                 match_details += f' ... (+{len(matches) - 3} more)'
         else:
@@ -2815,8 +2822,16 @@ class PASSearchPage(QWizardPage):
         with open(self.csv_output_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
-            # Write header
-            writer.writerow(['PartNumber', 'ManufacturerName', 'MatchStatus', 'MatchValue(PartNumber@ManufacturerName)'])
+            # Write header with new fields
+            writer.writerow([
+                'PartNumber', 
+                'ManufacturerName', 
+                'MatchStatus', 
+                'MatchValue(PartNumber@ManufacturerName)',
+                'Lifecycle_Status',
+                'Lifecycle_Code',
+                'External_ID'
+            ])
             
             # Write data
             for result in self.search_results:
@@ -2828,9 +2843,34 @@ class PASSearchPage(QWizardPage):
                 # Write one row per match (or one row if no matches)
                 if matches:
                     for match in matches:
-                        writer.writerow([part_number, manufacturer, status, match])
+                        # Extract match information (handles both dict and string formats)
+                        if isinstance(match, dict):
+                            match_string = match.get('match_string', '')
+                            lifecycle_status = match.get('lifecycle_status', '')
+                            lifecycle_code = match.get('lifecycle_code', '')
+                            external_id = match.get('external_id', '')
+                        elif isinstance(match, str):
+                            match_string = match
+                            lifecycle_status = ''
+                            lifecycle_code = ''
+                            external_id = ''
+                        else:
+                            match_string = str(match)
+                            lifecycle_status = ''
+                            lifecycle_code = ''
+                            external_id = ''
+                        
+                        writer.writerow([
+                            part_number, 
+                            manufacturer, 
+                            status, 
+                            match_string,
+                            lifecycle_status,
+                            lifecycle_code,
+                            external_id
+                        ])
                 else:
-                    writer.writerow([part_number, manufacturer, status, ''])
+                    writer.writerow([part_number, manufacturer, status, '', '', '', ''])
 
     def isComplete(self):
         """Check if search is complete"""
@@ -3731,7 +3771,15 @@ class PASAPIClient:
                 "searchParameters": {
                     "partClassId": "76f2225d",  # Root part class
                     "customParameters": {},
-                    "outputs": ["6230417e", "d8ac8dcc", "750a45c8", "2a2b1476", "e1aa6f26"],
+                    "outputs": [
+                        "6230417e",  # Manufacturer Name
+                        "d8ac8dcc",  # Manufacturer Part Number
+                        "750a45c8",  # Datasheet URL
+                        "2a2b1476",  # External Content ID (Findchips URL)
+                        "e5434e21",  # Lifecycle Status
+                        "a189d244",  # Lifecycle Status Code
+                        "e1aa6f26"   # Part ID
+                    ],
                     "sort": [],
                     "paging": {
                         "requestedPageSize": page_size
@@ -3951,10 +3999,30 @@ class PASAPIClient:
             part = part_data.get('searchProviderPart', {})
             mpn = part.get('manufacturerPartNumber', '')
             mfg = part.get('manufacturerName', '')
-            matches.append(f"{mpn}@{mfg}")
+            
+            # Extract lifecycle status and external content ID from properties
+            properties = part.get('properties', {}).get('succeeded', {})
+            lifecycle_status = properties.get('e5434e21', '')  # Lifecycle Status
+            lifecycle_code = properties.get('a189d244', '')    # Lifecycle Status Code
+            external_id = properties.get('2a2b1476', '')       # External Content ID
+            
+            # If external_id is a URL object, extract the value
+            if isinstance(external_id, dict) and '__complex__' in external_id:
+                external_id = external_id.get('value', '')
+            
+            # Create match entry with additional metadata
+            match_entry = {
+                'mpn': mpn,
+                'mfg': mfg,
+                'lifecycle_status': lifecycle_status,
+                'lifecycle_code': lifecycle_code,
+                'external_id': external_id,
+                'match_string': f"{mpn}@{mfg}"  # Keep original format for compatibility
+            }
+            matches.append(match_entry)
 
         # Limit matches to user-configured maximum (default 10)
-        return {'matches': matches[:self.max_matches]}, match_type
+        return {'matches': matches[:self.max_matches], 'raw_matches': part_data_list[:self.max_matches]}, match_type
 
 
 class SupplyFrameReviewPage(QWizardPage):
@@ -4010,6 +4078,34 @@ class SupplyFrameReviewPage(QWizardPage):
 
         page_layout.addWidget(main_splitter)
         self.setLayout(page_layout)
+
+    @staticmethod
+    def _get_match_info(match):
+        """
+        Helper function to extract match information from either old string format or new dict format.
+        Returns: (mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string)
+        """
+        if isinstance(match, dict):
+            # New dict format
+            return (
+                match.get('mpn', ''),
+                match.get('mfg', ''),
+                match.get('lifecycle_status', ''),
+                match.get('lifecycle_code', ''),
+                match.get('external_id', ''),
+                match.get('match_string', '')
+            )
+        elif isinstance(match, str):
+            # Old string format: "PartNumber@Manufacturer"
+            if '@' in match:
+                pn, mfg = match.split('@', 1)
+            else:
+                pn = match
+                mfg = ''
+            return (pn, mfg, '', '', '', match)
+        else:
+            # Invalid format
+            return ('', '', '', '', '', '')
 
     def initializePage(self):
         """Initialize by loading data from CSV file created by PASSearchPage"""
@@ -4572,8 +4668,8 @@ class SupplyFrameReviewPage(QWizardPage):
             right_layout.addWidget(QLabel("Available Matches:"))
 
             matches_table = QTableWidget()
-            matches_table.setColumnCount(5)
-            matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+            matches_table.setColumnCount(7)  # Increased from 5 to 7
+            matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score"])
             matches_table.setSortingEnabled(True)  # Enable sorting
             matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
             matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
@@ -4583,8 +4679,10 @@ class SupplyFrameReviewPage(QWizardPage):
             header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select
             header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number
             header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer
-            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Similarity
-            header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score
+            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Lifecycle Status
+            header.setSectionResizeMode(4, QHeaderView.Stretch)  # External ID
+            header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Similarity
+            header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # AI Score
             
             right_layout.addWidget(matches_table)
             
@@ -5762,17 +5860,18 @@ class SupplyFrameReviewPage(QWizardPage):
         original_pn = part.get('PartNumber', '').upper().strip()
 
         for match_idx, match in enumerate(matches):
-            # Parse match: "PartNumber@Manufacturer"
-            if '@' in match:
-                pn, mfg = match.split('@', 1)
-            else:
-                pn = match
-                mfg = ""
+            # Extract match information using helper function
+            mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string = self._get_match_info(match)
 
             # Radio button for selection - centered in cell
             radio = QRadioButton()
-            if part.get('selected_match') == match:
-                radio.setChecked(True)
+            # Check against match_string for compatibility
+            selected = part.get('selected_match')
+            if isinstance(selected, dict):
+                is_selected = (selected.get('match_string') == match_string)
+            else:
+                is_selected = (selected == match or selected == match_string)
+            radio.setChecked(is_selected)
             radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
 
             # Add radio button to the button group to ensure mutual exclusivity
@@ -5786,17 +5885,32 @@ class SupplyFrameReviewPage(QWizardPage):
             radio_layout.setContentsMargins(0, 0, 0, 0)
 
             matches_table.setCellWidget(match_idx, 0, radio_widget)
-            matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
+            matches_table.setItem(match_idx, 1, QTableWidgetItem(mpn))
             matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
+            
+            # Lifecycle Status column
+            lifecycle_item = QTableWidgetItem(lifecycle_status or '')
+            lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            matches_table.setItem(match_idx, 3, lifecycle_item)
+            
+            # External ID column (link)
+            external_item = QTableWidgetItem('')
+            if external_id:
+                # Truncate long URLs for display
+                display_url = external_id if len(external_id) <= 40 else external_id[:37] + '...'
+                external_item.setText(display_url)
+                external_item.setToolTip(f"Click to open: {external_id}")
+                external_item.setForeground(QColor(0, 0, 255))  # Blue for links
+            matches_table.setItem(match_idx, 4, external_item)
 
             # Calculate similarity score
-            match_pn = pn.upper().strip()
+            match_pn = mpn.upper().strip()
             similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
             similarity_item.setToolTip("String similarity using difflib (part number matching)")
-            matches_table.setItem(match_idx, 3, similarity_item)
+            matches_table.setItem(match_idx, 5, similarity_item)
 
             # AI Score - only show if AI has processed this part
             ai_score_item = QTableWidgetItem("")
@@ -5804,11 +5918,13 @@ class SupplyFrameReviewPage(QWizardPage):
             if part.get('ai_processed') and part.get('ai_match_scores'):
                 # Get AI confidence for this specific match
                 ai_scores = part.get('ai_match_scores', {})
-                if match in ai_scores:
-                    ai_conf = ai_scores[match]
+                # Check both match and match_string
+                score_key = match if not isinstance(match, dict) else match_string
+                if score_key in ai_scores:
+                    ai_conf = ai_scores[score_key]
                     ai_score_item.setText(f"{ai_conf}%")
                     ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
-            matches_table.setItem(match_idx, 4, ai_score_item)
+            matches_table.setItem(match_idx, 6, ai_score_item)
 
     def on_match_selected(self, part, match, checked):
         """Handle match selection"""

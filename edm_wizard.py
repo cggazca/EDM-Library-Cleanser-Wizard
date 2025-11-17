@@ -4036,24 +4036,29 @@ class PASAPIClient:
             part = part_data.get('searchProviderPart', {})
             mpn = part.get('manufacturerPartNumber', '')
             mfg = part.get('manufacturerName', '')
-            
-            # Extract lifecycle status and external content ID from properties
+
+            # Extract DataProviderID (partId) - this is the External Content ID used by Java SearchAndAssign
+            # This is a unique identifier for the part in the PAS database
+            part_id = part.get('partId', '')  # DataProviderID - External Content ID for EDM
+
+            # Extract lifecycle status and Findchips URL from properties
             properties = part.get('properties', {}).get('succeeded', {})
             lifecycle_status = properties.get('e5434e21', '')  # Lifecycle Status
             lifecycle_code = properties.get('a189d244', '')    # Lifecycle Status Code
-            external_id = properties.get('2a2b1476', '')       # External Content ID
-            
-            # If external_id is a URL object, extract the value
-            if isinstance(external_id, dict) and '__complex__' in external_id:
-                external_id = external_id.get('value', '')
-            
+            findchips_url = properties.get('2a2b1476', '')     # Findchips URL (for reference)
+
+            # If findchips_url is a URL object, extract the value
+            if isinstance(findchips_url, dict) and '__complex__' in findchips_url:
+                findchips_url = findchips_url.get('value', '')
+
             # Create match entry with additional metadata
             match_entry = {
                 'mpn': mpn,
                 'mfg': mfg,
                 'lifecycle_status': lifecycle_status,
                 'lifecycle_code': lifecycle_code,
-                'external_id': external_id,
+                'external_id': part_id,  # DataProviderID - the actual ID Java uses
+                'findchips_url': findchips_url,  # Keep Findchips URL for reference
                 'match_string': f"{mpn}@{mfg}"  # Keep original format for compatibility
             }
             matches.append(match_entry)
@@ -4121,7 +4126,7 @@ class SupplyFrameReviewPage(QWizardPage):
     def _get_match_info(match):
         """
         Helper function to extract match information from either old string format or new dict format.
-        Returns: (mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string)
+        Returns: (mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string)
         """
         if isinstance(match, dict):
             # New dict format
@@ -4131,6 +4136,7 @@ class SupplyFrameReviewPage(QWizardPage):
                 match.get('lifecycle_status', ''),
                 match.get('lifecycle_code', ''),
                 match.get('external_id', ''),
+                match.get('findchips_url', ''),
                 match.get('match_string', '')
             )
         elif isinstance(match, str):
@@ -4140,10 +4146,10 @@ class SupplyFrameReviewPage(QWizardPage):
             else:
                 pn = match
                 mfg = ''
-            return (pn, mfg, '', '', '', match)
+            return (pn, mfg, '', '', '', '', match)
         else:
             # Invalid format
-            return ('', '', '', '', '', '')
+            return ('', '', '', '', '', '', '')
 
     def initializePage(self):
         """Initialize by loading data from CSV file created by PASSearchPage"""
@@ -4384,7 +4390,7 @@ class SupplyFrameReviewPage(QWizardPage):
         for result in self.search_results:
             for match in result.get('matches', []):
                 # Extract manufacturer from match (handles both dict and string)
-                _, mfg, _, _, _, _ = self._get_match_info(match)
+                _, mfg, _, _, _, _, _ = self._get_match_info(match)
                 mfg = mfg.strip()
                 if mfg:
                     canonical_mfgs.add(mfg)
@@ -4395,7 +4401,7 @@ class SupplyFrameReviewPage(QWizardPage):
         for result in self.search_results:
             if result.get('selected_match'):
                 # Extract manufacturer from selected match (handles both dict and string)
-                _, mfg, _, _, _, _ = self._get_match_info(result['selected_match'])
+                _, mfg, _, _, _, _, _ = self._get_match_info(result['selected_match'])
                 mfg = mfg.strip()
                 if mfg:
                     selected_mfgs.add(mfg)
@@ -5296,7 +5302,7 @@ class SupplyFrameReviewPage(QWizardPage):
             # Calculate similarity for each match
             for match in part['matches']:
                 # Use helper method to extract match info (handles both dict and string formats)
-                match_pn, match_mfg, _, _, _, _ = self._get_match_info(match)
+                match_pn, match_mfg, _, _, _, _, _ = self._get_match_info(match)
 
                 # Ensure match_pn is a string before calling string methods
                 match_pn = str(match_pn).upper().strip() if match_pn else ""
@@ -5992,7 +5998,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
         for match_idx, match in enumerate(matches):
             # Extract match information using helper function
-            mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string = self._get_match_info(match)
+            mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
 
             # Radio button for selection - centered in cell
             radio = QRadioButton()
@@ -6095,7 +6101,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
         for match_idx, match in enumerate(part['matches']):
             # Extract match information using helper function
-            mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string = self._get_match_info(match)
+            mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
 
             # Radio button
             radio = QRadioButton()
@@ -6281,7 +6287,7 @@ class SupplyFrameReviewPage(QWizardPage):
             # Calculate similarity for each match
             for match in part['matches']:
                 # Extract match information using helper function
-                match_pn, match_mfg, _, _, _, _ = self._get_match_info(match)
+                match_pn, match_mfg, _, _, _, _, _ = self._get_match_info(match)
 
                 match_pn = match_pn.upper().strip()
                 match_mfg = match_mfg.upper().strip()
@@ -6614,7 +6620,7 @@ class SupplyFrameReviewPage(QWizardPage):
             for result in self.search_results:
                 # Collect all canonical manufacturers from matches using helper function
                 for match in result.get('matches', []):
-                    _, mfg, _, _, _, _ = self._get_match_info(match)
+                    _, mfg, _, _, _, _, _ = self._get_match_info(match)
                     mfg = mfg.strip()
                     if mfg:
                         canonical_mfgs.add(mfg)
@@ -6622,7 +6628,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
                 # Track user-selected manufacturers (their review work)
                 if result.get('selected_match'):
-                    _, mfg, _, _, _, _ = self._get_match_info(result['selected_match'])
+                    _, mfg, _, _, _, _, _ = self._get_match_info(result['selected_match'])
                     mfg = mfg.strip()
                     if mfg:
                         selected_mfgs.add(mfg)

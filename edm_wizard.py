@@ -4336,22 +4336,22 @@ class SupplyFrameReviewPage(QWizardPage):
         # These are canonical manufacturer names validated by Siemens PAS database
         for result in self.search_results:
             for match in result.get('matches', []):
-                if '@' in match:
-                    _, mfg = match.split('@', 1)
-                    mfg = mfg.strip()
-                    if mfg:
-                        canonical_mfgs.add(mfg)
+                # Extract manufacturer from match (handles both dict and string)
+                _, mfg, _, _, _, _ = self._get_match_info(match)
+                mfg = mfg.strip()
+                if mfg:
+                    canonical_mfgs.add(mfg)
 
         # Track manufacturers from USER-SELECTED matches (review phase work)
         # These are manufacturers the user specifically chose during review
         selected_mfgs = set()
         for result in self.search_results:
             if result.get('selected_match'):
-                if '@' in result['selected_match']:
-                    _, mfg = result['selected_match'].split('@', 1)
-                    mfg = mfg.strip()
-                    if mfg:
-                        selected_mfgs.add(mfg)
+                # Extract manufacturer from selected match (handles both dict and string)
+                _, mfg, _, _, _, _ = self._get_match_info(result['selected_match'])
+                mfg = mfg.strip()
+                if mfg:
+                    selected_mfgs.add(mfg)
 
         # Store both lists for future use
         self.canonical_manufacturers = sorted(list(canonical_mfgs))
@@ -6011,17 +6011,18 @@ class SupplyFrameReviewPage(QWizardPage):
         original_pn = part['PartNumber'].upper().strip()
 
         for match_idx, match in enumerate(part['matches']):
-            # Parse match
-            if '@' in match:
-                pn, mfg = match.split('@', 1)
-            else:
-                pn = match
-                mfg = ""
+            # Extract match information using helper function
+            mpn, mfg, lifecycle_status, lifecycle_code, external_id, match_string = self._get_match_info(match)
 
             # Radio button
             radio = QRadioButton()
-            if part.get('selected_match') == match:
-                radio.setChecked(True)
+            # Check against match_string for compatibility
+            selected = part.get('selected_match')
+            if isinstance(selected, dict):
+                is_selected = (selected.get('match_string') == match_string)
+            else:
+                is_selected = (selected == match or selected == match_string)
+            radio.setChecked(is_selected)
             radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
 
             # Add radio button to the button group to ensure mutual exclusivity
@@ -6034,28 +6035,45 @@ class SupplyFrameReviewPage(QWizardPage):
             radio_layout.setContentsMargins(0, 0, 0, 0)
 
             self.matches_table.setCellWidget(match_idx, 0, radio_widget)
-            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(pn))
+            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(mpn))
             self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
+            
+            # Lifecycle Status column
+            lifecycle_item = QTableWidgetItem(lifecycle_status or '')
+            lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            self.matches_table.setItem(match_idx, 3, lifecycle_item)
+            
+            # External ID column (link)
+            external_item = QTableWidgetItem('')
+            if external_id:
+                # Truncate long URLs for display
+                display_url = external_id if len(external_id) <= 40 else external_id[:37] + '...'
+                external_item.setText(display_url)
+                external_item.setToolTip(f"Click to open: {external_id}")
+                external_item.setForeground(QColor(0, 0, 255))  # Blue for links
+            self.matches_table.setItem(match_idx, 4, external_item)
 
             # Similarity score
-            match_pn = pn.upper().strip()
+            match_pn = mpn.upper().strip()
             similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
             similarity_item.setToolTip("String similarity using difflib (part number matching)")
-            self.matches_table.setItem(match_idx, 3, similarity_item)
+            self.matches_table.setItem(match_idx, 5, similarity_item)
 
             # AI Score - show if available
             ai_score_item = QTableWidgetItem("")
             ai_score_item.setTextAlignment(Qt.AlignCenter)
             if part.get('ai_processed') and part.get('ai_match_scores'):
                 ai_scores = part.get('ai_match_scores', {})
-                if match in ai_scores:
-                    ai_conf = ai_scores[match]
+                # Check both match and match_string
+                score_key = match if not isinstance(match, dict) else match_string
+                if score_key in ai_scores:
+                    ai_conf = ai_scores[score_key]
                     ai_score_item.setText(f"{ai_conf}%")
                     ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
-            self.matches_table.setItem(match_idx, 4, ai_score_item)
+            self.matches_table.setItem(match_idx, 6, ai_score_item)
 
     def show_match_context_menu(self, position):
         """Show context menu for matches table"""
@@ -6103,11 +6121,18 @@ class SupplyFrameReviewPage(QWizardPage):
         confidence = part.get('ai_confidence', 0)
         selected_match = part.get('selected_match', 'N/A')
 
-        # Parse match
-        if '@' in selected_match:
-            pn, mfg = selected_match.split('@', 1)
+        # Parse match using helper function
+        if isinstance(selected_match, dict):
+            pn = selected_match.get('mpn', 'N/A')
+            mfg = selected_match.get('mfg', 'N/A')
+        elif isinstance(selected_match, str):
+            if '@' in selected_match:
+                pn, mfg = selected_match.split('@', 1)
+            else:
+                pn = selected_match
+                mfg = "N/A"
         else:
-            pn = selected_match
+            pn = str(selected_match)
             mfg = "N/A"
 
         dialog = QMessageBox(self)
@@ -6172,12 +6197,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Calculate similarity for each match
             for match in part['matches']:
-                # Parse match: "PartNumber@Manufacturer"
-                if '@' in match:
-                    match_pn, match_mfg = match.split('@', 1)
-                else:
-                    match_pn = match
-                    match_mfg = ""
+                # Extract match information using helper function
+                match_pn, match_mfg, _, _, _, _ = self._get_match_info(match)
 
                 match_pn = match_pn.upper().strip()
                 match_mfg = match_mfg.upper().strip()

@@ -3386,26 +3386,32 @@ class ManufacturerNormalizationAIThread(QThread):
                     client = Anthropic(api_key=self.api_key)
 
                     # Create prompt for AI to analyze ALL manufacturers
-                    prompt = f"""Analyze these manufacturer names and detect variations that should be normalized.
+                    prompt = f"""Analyze these manufacturer names and detect variations that need normalization.
 
-Manufacturers needing analysis:
+SOURCE manufacturers (from user's data - these are what need normalizing):
 {json.dumps(sorted(self.all_manufacturers), indent=2)}
 
-PAS/SupplyFrame canonical manufacturer names (prefer these):
+TARGET manufacturers (PAS/SupplyFrame canonical names - normalize TO these when applicable):
 {json.dumps(sorted(self.supplyframe_manufacturers), indent=2)}
 
 Instructions:
-1. Identify manufacturer name variations (e.g., "TI" vs "Texas Instruments")
-2. Detect abbreviations, acquired companies, and alternate spellings
-3. Map each variation to the canonical PAS/SupplyFrame name when available
-4. For companies not in PAS, suggest the most complete/official name
-5. IMPORTANT: For each mapping, provide a brief reasoning (acquisitions, abbreviations, etc.)
-6. CRITICAL: Ensure all string values are properly escaped for JSON (escape quotes, newlines, backslashes)
+1. ONLY create mappings for manufacturers in the SOURCE list
+2. Identify variations in SOURCE that should map to canonical TARGET names
+3. Examples of variations to detect:
+   - Abbreviations: "TI" → "Texas Instruments"
+   - Acquisitions: "EPCOS" → "TDK Electronics"
+   - Alternate spellings: "STMicro" → "STMicroelectronics"
+4. CRITICAL RULES:
+   - If a SOURCE name already matches a TARGET name exactly, DO NOT include it
+   - NEVER create reverse mappings (e.g., DO NOT map "Texas Instruments" → "TI")
+   - ONLY map FROM variations TO canonical names, never the reverse
+   - Direction matters: abbreviation → full name, NOT full name → abbreviation
+   - For companies not in TARGET list, suggest the most complete/official name
+5. Provide brief reasoning for each mapping (acquisitions, abbreviations, etc.)
 
 Return ONLY valid JSON with this structure:
 {{
     "normalizations": {{
-        "<variation>": "<canonical_name>",
         "TI": "Texas Instruments",
         "EPCOS": "TDK Electronics"
     }},
@@ -3416,7 +3422,7 @@ Return ONLY valid JSON with this structure:
 }}
 
 IMPORTANT:
-- Only include entries that need normalization (skip exact matches already canonical)
+- Only include entries that need normalization (skip exact matches)
 - Return ONLY valid JSON, no markdown, no other text
 - Ensure all quotes inside strings are escaped with backslash"""
 
@@ -3463,18 +3469,48 @@ IMPORTANT:
                     ai_normalizations = ai_result.get('normalizations', {})
                     ai_reasoning = ai_result.get('reasoning', {})
 
-                    # Store AI results
+                    # Validate and filter AI results to prevent incorrect normalizations
+                    validated_count = 0
+                    skipped_count = 0
                     for variation, canonical in ai_normalizations.items():
+                        # Only include if variation is in the source data
+                        if variation not in self.all_manufacturers:
+                            self.progress.emit(f"⚠️ Skipping '{variation}' → '{canonical}' (not in source data)")
+                            skipped_count += 1
+                            continue
+
+                        # Skip if variation already equals canonical (no change needed)
+                        if variation == canonical:
+                            self.progress.emit(f"⚠️ Skipping '{variation}' → '{canonical}' (already identical)")
+                            skipped_count += 1
+                            continue
+
+                        # CRITICAL: Ensure canonical is in PAS list OR is a well-known expansion
+                        # Skip if canonical is also in source data (means AI suggested user's data as target)
+                        if canonical in self.all_manufacturers and canonical not in self.supplyframe_manufacturers:
+                            self.progress.emit(f"⚠️ Skipping '{variation}' → '{canonical}' (canonical is not from PAS)")
+                            skipped_count += 1
+                            continue
+
+                        # Skip reverse mappings (canonical → variation)
+                        # This catches cases where AI incorrectly maps full names to abbreviations
+                        if canonical in self.all_manufacturers and variation in self.supplyframe_manufacturers:
+                            self.progress.emit(f"⚠️ Skipping '{variation}' → '{canonical}' (appears to be reverse mapping)")
+                            skipped_count += 1
+                            continue
+
+                        # Validation passed - store the normalization
                         normalizations[variation] = canonical
                         reasoning_map[variation] = {
                             'method': 'ai',
                             'reasoning': ai_reasoning.get(variation, 'AI suggested normalization')
                         }
+                        validated_count += 1
 
-                    if ai_normalizations:
-                        self.progress.emit(f"✓ AI analysis complete: {len(ai_normalizations)} normalizations detected")
+                    if validated_count > 0:
+                        self.progress.emit(f"✓ AI analysis complete: {validated_count} normalizations detected, {skipped_count} skipped")
                     else:
-                        self.progress.emit("✓ AI analysis complete: No normalizations suggested")
+                        self.progress.emit(f"✓ AI analysis complete: No valid normalizations suggested ({skipped_count} skipped)")
 
             # Emit results
             self.finished.emit(normalizations, reasoning_map)
@@ -4413,15 +4449,25 @@ class SupplyFrameReviewPage(QWizardPage):
                     'reasoning': f"Fuzzy match against PAS master list: {best_score}% similarity"
                 }
                 print(f"DEBUG: Normalization suggestion: '{original}' -> '{best_match}' ({best_score}%)")
+            elif best_match and best_score >= 50:  # Medium confidence match
+                # Show the best match but mark as needing review
+                normalizations[original] = best_match
+                reasoning_map[original] = {
+                    'method': 'manual',
+                    'score': best_score,
+                    'reasoning': f"Low confidence match ({best_score}%) - please review"
+                }
+                print(f"DEBUG: Low confidence match for '{original}' -> '{best_match}' ({best_score}%) - needs review")
             else:
-                # No good match - show it anyway with itself as default
-                normalizations[original] = original
+                # No good match - leave blank for manual entry
+                # Use empty string so dropdown shows first canonical manufacturer
+                normalizations[original] = ""
                 reasoning_map[original] = {
                     'method': 'manual',
                     'score': 0,
                     'reasoning': f"No automatic match found - requires manual review"
                 }
-                print(f"DEBUG: No match for '{original}' - added for manual review")
+                print(f"DEBUG: No match for '{original}' - left blank for manual review")
 
         # Always populate the table if we have manufacturers
         if normalizations:
@@ -5784,10 +5830,17 @@ class SupplyFrameReviewPage(QWizardPage):
                     all_mfgs.add(part['ManufacturerName'])
 
                 # SupplyFrame manufacturers from matches
+                # Extract canonical manufacturer names from MatchValue column
                 for match in part.get('matches', []):
-                    if '@' in match:
+                    # Match is a dict with 'mfg' key containing the canonical manufacturer
+                    if isinstance(match, dict):
+                        mfg = match.get('mfg', '').strip()
+                        if mfg:
+                            supplyframe_mfgs.add(mfg)
+                    # Legacy support: if match is a string (old format)
+                    elif isinstance(match, str) and '@' in match:
                         _, mfg = match.split('@', 1)
-                        supplyframe_mfgs.add(mfg)
+                        supplyframe_mfgs.add(mfg.strip())
 
         # Show unique manufacturer counts in status
         self.norm_status.setText(
@@ -6493,11 +6546,11 @@ class SupplyFrameReviewPage(QWizardPage):
                               "Claude AI is not available. Please provide an API key.")
             return
 
-        # Collect all manufacturers
-        all_mfgs = set()
-        supplyframe_mfgs = set()
+        # Collect manufacturers - CRITICAL: Keep source and target separate!
+        source_mfgs = set()  # Only manufacturers from user's original data
+        canonical_mfgs = set()  # Only canonical manufacturers from PAS
 
-        # From original data (ALL manufacturers from Step 3)
+        # From original data (ONLY manufacturers from Step 3 - the SOURCE)
         xml_gen_page = self.wizard().page(3)
         if hasattr(xml_gen_page, 'combined_data'):
             # Convert DataFrame to list of dictionaries if needed
@@ -6506,31 +6559,33 @@ class SupplyFrameReviewPage(QWizardPage):
                 data = data.to_dict('records')
             for row in data:
                 if isinstance(row, dict) and row.get('MFG'):
-                    all_mfgs.add(row['MFG'])
+                    source_mfgs.add(row['MFG'])
 
-        # From search results - collect ALL manufacturers from ALL matches
-        # (Not just selected matches, but all possible matches from SupplyFrame)
+        # From search results - collect ONLY canonical manufacturers from PAS (the TARGET)
+        # DO NOT add user's original manufacturers here - they're already in source_mfgs
         if hasattr(self, 'search_results'):
             for part in self.search_results:
-                # Add original manufacturer from the search results
-                if part.get('ManufacturerName'):
-                    all_mfgs.add(part['ManufacturerName'])
-
-                # Add ALL manufacturers from matches (not just selected)
+                # Extract canonical manufacturer names from MatchValue column
                 for match in part.get('matches', []):
-                    if '@' in match:
+                    # Match is a dict with 'mfg' key containing the canonical manufacturer
+                    if isinstance(match, dict):
+                        mfg = match.get('mfg', '').strip()
+                        if mfg:
+                            canonical_mfgs.add(mfg)
+                    # Legacy support: if match is a string (old format)
+                    elif isinstance(match, str) and '@' in match:
                         _, mfg = match.split('@', 1)
-                        supplyframe_mfgs.add(mfg)
+                        canonical_mfgs.add(mfg.strip())
 
         self.norm_status.setText("🤖 Analyzing manufacturers...")
         self.norm_status.setStyleSheet("color: blue;")
         self.ai_normalize_btn.setEnabled(False)
 
-        # Start AI thread
+        # Start AI thread with SEPARATE source and target lists
         self.ai_norm_thread = ManufacturerNormalizationAIThread(
             self.api_key,
-            list(all_mfgs),
-            list(supplyframe_mfgs)
+            list(source_mfgs),  # Only user's original manufacturers
+            list(canonical_mfgs)  # Only PAS canonical manufacturers
         )
         self.ai_norm_thread.progress.connect(lambda msg: self.norm_status.setText(msg))
         self.ai_norm_thread.finished.connect(self.on_ai_norm_finished)
@@ -6550,23 +6605,11 @@ class SupplyFrameReviewPage(QWizardPage):
                     'reasoning': reasoning_map.get(original, {}).get('reasoning', 'AI suggested normalization')
                 }
 
-        # Collect all unique manufacturers from both sources
-        all_mfgs = set()
-        canonical_mfgs = set()
+        # Collect manufacturers - keep lists separate to avoid contamination
+        canonical_mfgs = set()  # PAS canonical manufacturers
         selected_mfgs = set()  # User-selected manufacturers from review phase
 
-        # From original data
-        xml_gen_page = self.wizard().page(3)
-        if hasattr(xml_gen_page, 'combined_data'):
-            # Convert DataFrame to list of dictionaries if needed
-            data = xml_gen_page.combined_data
-            if hasattr(data, 'to_dict'):
-                data = data.to_dict('records')
-            for row in data:
-                if isinstance(row, dict) and row.get('MFG'):
-                    all_mfgs.add(row['MFG'])
-
-        # From search results - collect canonical and selected manufacturers
+        # From search results - collect canonical manufacturers (for dropdown population)
         if hasattr(self, 'search_results'):
             for result in self.search_results:
                 # Collect all canonical manufacturers from matches using helper function
@@ -6575,7 +6618,7 @@ class SupplyFrameReviewPage(QWizardPage):
                     mfg = mfg.strip()
                     if mfg:
                         canonical_mfgs.add(mfg)
-                        all_mfgs.add(mfg)
+                        # DO NOT add to all_mfgs - only use for dropdown
 
                 # Track user-selected manufacturers (their review work)
                 if result.get('selected_match'):
@@ -6583,12 +6626,7 @@ class SupplyFrameReviewPage(QWizardPage):
                     mfg = mfg.strip()
                     if mfg:
                         selected_mfgs.add(mfg)
-                        all_mfgs.add(mfg)
-
-        # From normalization suggestions
-        for original, canonical in normalizations.items():
-            all_mfgs.add(original)
-            all_mfgs.add(canonical)
+                        # DO NOT add to all_mfgs - only use for tracking
 
         # Get all unique manufacturers from original data (ensure we show EVERYTHING)
         unique_original_mfgs = set()
@@ -6677,13 +6715,13 @@ class SupplyFrameReviewPage(QWizardPage):
             normalize_combo.wheelEvent = lambda event: event.ignore()
             normalize_combo.setFocusPolicy(Qt.StrongFocus)
 
-            # Add only PAS canonical manufacturers
+            # Add only PAS canonical manufacturers to dropdown
             if hasattr(self, 'canonical_manufacturers'):
                 for mfg in sorted(self.canonical_manufacturers):
                     normalize_combo.addItem(mfg)
             else:
-                # Fallback to all_mfgs if canonical not available
-                for mfg in sorted(all_mfgs):
+                # Fallback to canonical_mfgs from this function
+                for mfg in sorted(canonical_mfgs):
                     normalize_combo.addItem(mfg)
 
             # Set current suggestion
@@ -6796,7 +6834,13 @@ class SupplyFrameReviewPage(QWizardPage):
         if hasattr(self, 'search_results'):
             for result in self.search_results:
                 for match in result.get('matches', []):
-                    if '@' in match:
+                    # Match is a dict with 'mfg' key containing the canonical manufacturer
+                    if isinstance(match, dict):
+                        mfg = match.get('mfg', '').strip()
+                        if mfg:
+                            canonical_mfgs.add(mfg)
+                    # Legacy support: if match is a string (old format)
+                    elif isinstance(match, str) and '@' in match:
                         _, mfg = match.split('@', 1)
                         mfg = mfg.strip()
                         if mfg:
@@ -7072,11 +7116,21 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             if hasattr(self, 'search_results'):
                 for part_data in self.search_results:
                     if 'selected_match' in part_data and part_data['selected_match']:
-                        # Parse the selected match: "PartNumber@ManufacturerName"
-                        match_str = part_data['selected_match']
-                        if '@' in match_str:
-                            new_pn, new_mfg = match_str.split('@', 1)
+                        # Parse the selected match (handles both dict and string formats)
+                        selected_match = part_data['selected_match']
 
+                        # Extract PN and MFG from match
+                        if isinstance(selected_match, dict):
+                            new_pn = selected_match.get('mpn', '').strip()
+                            new_mfg = selected_match.get('mfg', '').strip()
+                        elif isinstance(selected_match, str) and '@' in selected_match:
+                            new_pn, new_mfg = selected_match.split('@', 1)
+                            new_pn = new_pn.strip()
+                            new_mfg = new_mfg.strip()
+                        else:
+                            continue  # Skip invalid format
+
+                        if new_pn and new_mfg:
                             # Find and update all matching records in new_data
                             original_pn = part_data['PartNumber']
                             original_mfg = part_data['ManufacturerName']
@@ -7084,8 +7138,8 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                             for record in new_data:
                                 if (record['MFG_PN'] == original_pn and
                                     record['MFG'] == original_mfg):
-                                    record['MFG_PN'] = new_pn.strip()
-                                    record['MFG'] = new_mfg.strip()
+                                    record['MFG_PN'] = new_pn
+                                    record['MFG'] = new_mfg
                                     matches_applied += 1
 
             # Step 2: Apply manufacturer normalizations
@@ -7524,7 +7578,12 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                 existing_sheets = {sheet: pd.read_excel(output_excel, sheet_name=sheet)
                                  for sheet in xls.sheet_names}
 
-            # Add Combined_New sheet
+            # CRITICAL: Preserve the original Combined sheet - ensure it stays untouched
+            # Use the original data from Step 3 instead of re-reading from Excel
+            if hasattr(column_mapping_page, 'combined_data') and column_mapping_page.combined_data is not None:
+                existing_sheets['Combined'] = column_mapping_page.combined_data.copy()
+
+            # Add Combined_New sheet with normalized data
             existing_sheets['Combined_New'] = new_data
 
             # Write back to Excel

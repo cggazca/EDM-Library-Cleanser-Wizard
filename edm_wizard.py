@@ -4492,7 +4492,7 @@ class SupplyFrameReviewPage(QWizardPage):
         else:
             parts_table.setColumnCount(3)
             parts_table.setHorizontalHeaderLabels(["Part Number", "MFG", "Status"])
-        
+
         # Set column resize modes
         parts_header = parts_table.horizontalHeader()
         parts_header.setSectionResizeMode(0, QHeaderView.Stretch)  # Part Number
@@ -4504,7 +4504,8 @@ class SupplyFrameReviewPage(QWizardPage):
             parts_header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Reviewed
             parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
             parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
-        
+
+        parts_table.setSortingEnabled(True)  # Enable sorting
         parts_table.setSelectionBehavior(QTableWidget.SelectRows)
         parts_table.setSelectionMode(QTableWidget.SingleSelection)
         parts_table.itemSelectionChanged.connect(self.on_part_selected)
@@ -4599,13 +4600,14 @@ class SupplyFrameReviewPage(QWizardPage):
             right_layout.addStretch()
         elif show_actions:
             right_layout.addWidget(QLabel("Available Matches:"))
-            
+
             matches_table = QTableWidget()
             matches_table.setColumnCount(5)
             matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+            matches_table.setSortingEnabled(True)  # Enable sorting
             matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
             matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
-            
+
             # Set column resize modes
             header = matches_table.horizontalHeader()
             header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select
@@ -5257,6 +5259,7 @@ class SupplyFrameReviewPage(QWizardPage):
         parts_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI
         parts_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Action
 
+        self.parts_list.setSortingEnabled(True)  # Enable sorting
         self.parts_list.setSelectionBehavior(QTableWidget.SelectRows)
         self.parts_list.setSelectionMode(QTableWidget.SingleSelection)
         self.parts_list.itemSelectionChanged.connect(self.on_part_selected)
@@ -5306,6 +5309,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.matches_table = QTableWidget()
         self.matches_table.setColumnCount(5)
         self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+        self.matches_table.setSortingEnabled(True)  # Enable sorting
         self.matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
 
@@ -5363,9 +5367,10 @@ class SupplyFrameReviewPage(QWizardPage):
         self.norm_table = QTableWidget()
         self.norm_table.setColumnCount(4)
         self.norm_table.setHorizontalHeaderLabels(["Include", "Original MFG", "Normalize To", "Scope"])
+        self.norm_table.setSortingEnabled(True)  # Enable sorting
         self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
-        
+
         # Set column resize modes
         header = self.norm_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Include - fit to checkbox
@@ -5425,6 +5430,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.old_data_table = QTableWidget()
         self.old_data_table.setColumnCount(3)
         self.old_data_table.setHorizontalHeaderLabels(["MFG", "MFG PN", "Description"])
+        self.old_data_table.setSortingEnabled(True)  # Enable sorting
         self.old_data_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         old_layout.addWidget(self.old_data_table)
 
@@ -5435,6 +5441,7 @@ class SupplyFrameReviewPage(QWizardPage):
         self.new_data_table = QTableWidget()
         self.new_data_table.setColumnCount(3)
         self.new_data_table.setHorizontalHeaderLabels(["MFG", "MFG PN", "Description"])
+        self.new_data_table.setSortingEnabled(True)  # Enable sorting
         self.new_data_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         new_layout.addWidget(self.new_data_table)
 
@@ -7019,6 +7026,7 @@ class ComparisonPage(QWizardPage):
         left_layout = QVBoxLayout()
 
         self.left_table = QTableWidget()
+        self.left_table.setSortingEnabled(True)  # Enable sorting
         self.left_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.left_table.setSelectionMode(QTableWidget.SingleSelection)
         self.left_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -7033,6 +7041,7 @@ class ComparisonPage(QWizardPage):
         right_layout = QVBoxLayout()
 
         self.right_table = QTableWidget()
+        self.right_table.setSortingEnabled(True)  # Enable sorting
         self.right_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.right_table.setSelectionMode(QTableWidget.SingleSelection)
         self.right_table.setSelectionBehavior(QTableWidget.SelectRows)

@@ -86,57 +86,30 @@ class StartPage(QWizardPage):
 
     def __init__(self):
         super().__init__()
-        self.setTitle("")
-        self.setSubTitle("")
+        self.setTitle("Welcome to EDM Library Wizard")
+        self.setSubTitle("Configure API credentials for intelligent column mapping and part search")
 
-        # Use a scroll area for content
+        # Create scroll area to handle overflow
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background-color: #005F87; border: none; }")
         
+        # Content widget that will go inside the scroll area
         content_widget = QWidget()
-        content_widget.setStyleSheet("QWidget { background-color: #005F87; }")
         layout = QVBoxLayout(content_widget)
-        layout.setSpacing(15)
-        layout.setContentsMargins(30, 20, 30, 20)
 
-        # Header section with branding
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(10)
-        
-        title_label = QLabel("EDM Library Wizard")
-        title_font = QFont("Segoe UI", 22, QFont.Bold)
-        title_label.setFont(title_font)
-        title_label.setStyleSheet("color: white; margin: 0px; padding: 10px; background-color: transparent;")
-        title_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(title_label)
-        
-        subtitle_label = QLabel("Intelligent Library Management for Xpedition Designer")
-        subtitle_font = QFont("Segoe UI", 11)
-        subtitle_label.setFont(subtitle_font)
-        subtitle_label.setStyleSheet("color: #C8E0F0; margin: 0px; padding: 5px; background-color: transparent;")
-        subtitle_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(subtitle_label)
-        
-        siemens_label = QLabel("Powered by Siemens Digital Industries Software")
-        siemens_font = QFont("Segoe UI", 9)
-        siemens_font.setItalic(True)
-        siemens_label.setFont(siemens_font)
-        siemens_label.setStyleSheet("color: #9BC4DD; margin: 0px; padding: 5px 5px 15px 5px; background-color: transparent;")
-        siemens_label.setAlignment(Qt.AlignCenter)
-        header_layout.addWidget(siemens_label)
-        
-        layout.addLayout(header_layout)
-        
-        # Add separator
-        separator = QLabel()
-        separator.setStyleSheet(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #005F87, stop:0.5 white, stop:1 #005F87); "
-            "min-height: 2px; max-height: 2px; margin: 10px 60px;"
+        # AI Info section
+        info_group = QGroupBox("🤖 AI-Powered Column Mapping")
+        info_layout = QVBoxLayout()
+
+        info_text = QLabel(
+            "This wizard can use Claude AI to automatically detect and map your Excel columns.\n"
+            "Enter your Claude API key below to enable AI features, or skip to continue manually."
         )
-        layout.addWidget(separator)
-
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text)
+        info_group.setLayout(info_layout)
+        layout.addWidget(info_group)
 
         # Claude API Key input section
         api_group = QGroupBox("Claude API Configuration")
@@ -7223,211 +7196,51 @@ class EDMWizard(QWizard):
         # Set size policy to allow expansion
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Apply Xpedition Designer professional CAD-grade styling
+        # Apply styling
         self.setStyleSheet("""
-            /* Main wizard - CAD-grade professional with teal background */
             QWizard {
-                background-color: #005F87;
+                background-color: #f5f5f5;
             }
-            
-            QWizardPage {
-                background-color: #005F87;
-            }
-            
-            /* Group boxes - flat modern design with subtle borders */
             QGroupBox {
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 10pt;
-                font-weight: 600;
-                border: 1px solid #C5CFD6;
-                border-radius: 6px;
+                font-weight: bold;
+                border: 2px solid #cccccc;
+                border-radius: 5px;
                 margin-top: 10px;
-                padding-top: 12px;
-                background-color: white;
+                padding-top: 10px;
             }
             QGroupBox::title {
                 subcontrol-origin: margin;
-                left: 12px;
-                padding: 0 6px;
-                color: #005F87;
+                left: 10px;
+                padding: 0 5px;
             }
-            
-            /* Buttons - Xpedition deep teal */
             QPushButton {
-                font-family: "Segoe UI", Arial, sans-serif;
-                padding: 7px 18px;
-                background-color: #005F87;
+                padding: 5px 15px;
+                background-color: #0078d7;
                 color: white;
                 border: none;
-                border-radius: 5px;
-                min-width: 90px;
-                font-weight: 500;
-                font-size: 9pt;
+                border-radius: 3px;
+                min-width: 80px;
             }
             QPushButton:hover {
-                background-color: #0077A8;
-            }
-            QPushButton:pressed {
-                background-color: #004666;
+                background-color: #005a9e;
             }
             QPushButton:disabled {
-                background-color: #D0D5DA;
-                color: #8A9199;
+                background-color: #cccccc;
             }
-            
-            /* Input fields - minimal clean design */
             QLineEdit {
-                font-family: "Segoe UI", Arial, sans-serif;
-                padding: 6px 8px;
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 9pt;
-            }
-            QLineEdit:focus {
-                border: 1px solid #005F87;
-                background-color: #FAFBFC;
-            }
-            
-            QComboBox {
-                font-family: "Segoe UI", Arial, sans-serif;
-                padding: 5px 8px;
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 9pt;
-            }
-            QComboBox:focus {
-                border: 1px solid #005F87;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 20px;
-            }
-            
-            QSpinBox {
-                font-family: "Segoe UI", Arial, sans-serif;
-                padding: 5px 8px;
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 9pt;
-            }
-            QSpinBox:focus {
-                border: 1px solid #005F87;
-            }
-            
-            /* Tables - clean engineering aesthetic */
-            QTableWidget {
-                font-family: "Segoe UI", Arial, sans-serif;
-                border: 1px solid #C5CFD6;
-                gridline-color: #E8EBED;
-                background-color: white;
-                alternate-background-color: #F8F9FA;
-                font-size: 9pt;
-            }
-            QHeaderView::section {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                          stop:0 #005F87, stop:1 #004A6B);
-                color: white;
-                padding: 6px 8px;
-                border: none;
-                border-right: 1px solid #004A6B;
-                border-bottom: 1px solid #004A6B;
-                font-weight: 600;
-                font-size: 9pt;
-            }
-            
-            /* Tab widget - flat professional */
-            QTabWidget::pane {
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: white;
-                top: -1px;
-            }
-            QTabBar::tab {
-                font-family: "Segoe UI", Arial, sans-serif;
-                background-color: #E8EBED;
-                color: #4A5660;
-                padding: 8px 16px;
-                border: 1px solid #C5CFD6;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                margin-right: 2px;
-                font-weight: 500;
-                font-size: 9pt;
-            }
-            QTabBar::tab:selected {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                          stop:0 #005F87, stop:1 #004A6B);
-                color: white;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #D4DDE3;
-            }
-            
-            /* Labels - engineering typography */
-            QLabel {
-                font-family: "Segoe UI", Arial, sans-serif;
-                color: #2C3E50;
-                font-size: 9pt;
-            }
-            
-            /* Checkboxes - clean minimal */
-            QCheckBox {
-                font-family: "Segoe UI", Arial, sans-serif;
-                font-size: 9pt;
-                spacing: 6px;
-                color: #2C3E50;
-            }
-            
-            /* Progress bars - subtle and clean */
-            QProgressBar {
-                font-family: "Segoe UI", Arial, sans-serif;
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: #F5F7F8;
-                text-align: center;
-                font-weight: 500;
-                font-size: 9pt;
-                color: #2C3E50;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                          stop:0 #005F87, stop:1 #0077A8);
+                padding: 5px;
+                border: 1px solid #cccccc;
                 border-radius: 3px;
             }
-            
-            /* Scroll bars - minimal modern */
-            QScrollBar:vertical {
-                border: none;
-                background: #F5F7F8;
-                width: 10px;
-                margin: 0px;
+            QTableWidget {
+                border: 1px solid #cccccc;
+                gridline-color: #e0e0e0;
             }
-            QScrollBar::handle:vertical {
-                background: #C5CFD6;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #005F87;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            /* Text edit areas */
-            QTextEdit {
-                font-family: "Segoe UI", Arial, sans-serif;
-                border: 1px solid #C5CFD6;
-                border-radius: 4px;
-                background-color: white;
-                font-size: 9pt;
-            }
-            QTextEdit:focus {
-                border: 1px solid #005F87;
+            QHeaderView::section {
+                background-color: #e0e0e0;
+                padding: 5px;
+                border: 1px solid #cccccc;
+                font-weight: bold;
             }
         """)
 

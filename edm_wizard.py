@@ -6214,6 +6214,15 @@ class SupplyFrameReviewPage(QWizardPage):
         elif part in self.need_review_parts:
             self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
 
+        # If this part is currently selected, refresh the matches display to show AI scores
+        selected_rows = self.parts_list.selectedIndexes()
+        if selected_rows:
+            row_idx = selected_rows[0].row()
+            if row_idx < len(self.parts_needing_review):
+                selected_part = self.parts_needing_review[row_idx]
+                if selected_part is part:
+                    self.refresh_matches_display()
+
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""
         applied = 0

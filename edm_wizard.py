@@ -5407,21 +5407,26 @@ class SupplyFrameReviewPage(QWizardPage):
         # From original data (Step 3)
         xml_gen_page = self.wizard().page(3)
         if hasattr(xml_gen_page, 'combined_data'):
-            for row in xml_gen_page.combined_data:
-                if row.get('MFG'):
+            # Convert DataFrame to list of dictionaries if needed
+            data = xml_gen_page.combined_data
+            if hasattr(data, 'to_dict'):
+                data = data.to_dict('records')
+            for row in data:
+                if isinstance(row, dict) and row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
-        # From SearchAndAssign data
-        for part in self.search_assign_data:
-            # Original manufacturers
-            if part.get('ManufacturerName'):
-                all_mfgs.add(part['ManufacturerName'])
+        # From search results data
+        if hasattr(self, 'search_results'):
+            for part in self.search_results:
+                # Original manufacturers
+                if part.get('ManufacturerName'):
+                    all_mfgs.add(part['ManufacturerName'])
 
-            # SupplyFrame manufacturers from matches
-            for match in part.get('matches', []):
-                if '@' in match:
-                    _, mfg = match.split('@', 1)
-                    supplyframe_mfgs.add(mfg)
+                # SupplyFrame manufacturers from matches
+                for match in part.get('matches', []):
+                    if '@' in match:
+                        _, mfg = match.split('@', 1)
+                        supplyframe_mfgs.add(mfg)
 
         # Show unique manufacturer counts in status
         self.norm_status.setText(
@@ -6075,18 +6080,19 @@ class SupplyFrameReviewPage(QWizardPage):
                 if isinstance(row, dict) and row.get('MFG'):
                     all_mfgs.add(row['MFG'])
 
-        # From SearchAndAssign CSV - collect ALL manufacturers from ALL matches
+        # From search results - collect ALL manufacturers from ALL matches
         # (Not just selected matches, but all possible matches from SupplyFrame)
-        for part in self.search_assign_data:
-            # Add original manufacturer from the CSV
-            if part.get('ManufacturerName'):
-                all_mfgs.add(part['ManufacturerName'])
+        if hasattr(self, 'search_results'):
+            for part in self.search_results:
+                # Add original manufacturer from the search results
+                if part.get('ManufacturerName'):
+                    all_mfgs.add(part['ManufacturerName'])
 
-            # Add ALL manufacturers from matches (not just selected)
-            for match in part.get('matches', []):
-                if '@' in match:
-                    _, mfg = match.split('@', 1)
-                    supplyframe_mfgs.add(mfg)
+                # Add ALL manufacturers from matches (not just selected)
+                for match in part.get('matches', []):
+                    if '@' in match:
+                        _, mfg = match.split('@', 1)
+                        supplyframe_mfgs.add(mfg)
 
         self.norm_status.setText("🤖 Analyzing manufacturers...")
         self.norm_status.setStyleSheet("color: blue;")
@@ -6236,23 +6242,24 @@ class SupplyFrameReviewPage(QWizardPage):
             normalizations_applied = 0
 
             # Step 1: Apply selected partial matches
-            for part_data in self.search_assign_data:
-                if 'selected_match' in part_data and part_data['selected_match']:
-                    # Parse the selected match: "PartNumber@ManufacturerName"
-                    match_str = part_data['selected_match']
-                    if '@' in match_str:
-                        new_pn, new_mfg = match_str.split('@', 1)
+            if hasattr(self, 'search_results'):
+                for part_data in self.search_results:
+                    if 'selected_match' in part_data and part_data['selected_match']:
+                        # Parse the selected match: "PartNumber@ManufacturerName"
+                        match_str = part_data['selected_match']
+                        if '@' in match_str:
+                            new_pn, new_mfg = match_str.split('@', 1)
 
-                        # Find and update all matching records in new_data
-                        original_pn = part_data['PartNumber']
-                        original_mfg = part_data['ManufacturerName']
+                            # Find and update all matching records in new_data
+                            original_pn = part_data['PartNumber']
+                            original_mfg = part_data['ManufacturerName']
 
-                        for record in new_data:
-                            if (record['MFG_PN'] == original_pn and
-                                record['MFG'] == original_mfg):
-                                record['MFG_PN'] = new_pn.strip()
-                                record['MFG'] = new_mfg.strip()
-                                matches_applied += 1
+                            for record in new_data:
+                                if (record['MFG_PN'] == original_pn and
+                                    record['MFG'] == original_mfg):
+                                    record['MFG_PN'] = new_pn.strip()
+                                    record['MFG'] = new_mfg.strip()
+                                    matches_applied += 1
 
             # Step 2: Apply manufacturer normalizations
             for row_idx in range(self.norm_table.rowCount()):
@@ -6629,8 +6636,8 @@ class SupplyFrameReviewPage(QWizardPage):
             new_data = column_mapping_page.combined_data.copy()
 
             # Apply selected partial matches from search results
-            if hasattr(self, 'search_assign_data') and self.search_assign_data:
-                for part_data in self.search_assign_data:
+            if hasattr(self, 'search_results') and self.search_results:
+                for part_data in self.search_results:
                     if 'selected_match' in part_data and part_data['selected_match']:
                         selected = part_data['selected_match']
                         # Find matching row in new_data

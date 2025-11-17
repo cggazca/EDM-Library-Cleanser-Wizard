@@ -15,7 +15,8 @@ try:
         QWizardPage, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QLineEdit,
         QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
         QComboBox, QMessageBox, QWidget, QTabWidget, QScrollArea, QSpinBox,
-        QInputDialog, QMenu, QTextEdit, QDialog, QDialogButtonBox, QSplitter
+        QInputDialog, QMenu, QTextEdit, QDialog, QDialogButtonBox, QSplitter,
+        QButtonGroup
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal
     from PyQt5.QtGui import QColor, QFont

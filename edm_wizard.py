@@ -4989,7 +4989,6 @@ class SupplyFrameReviewPage(QWizardPage):
             # Color-code re-searched parts that moved from None to other categories
             if part.get('re_searched') and part.get('original_status') == 'None':
                 # Light cyan background to indicate this part was re-searched from None
-                from PyQt5.QtGui import QColor
                 highlight_color = QColor(200, 255, 255)  # Light cyan
                 pn_item.setBackground(highlight_color)
                 mfg_item.setBackground(highlight_color)
@@ -6720,8 +6719,9 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Get all unique manufacturers from original data (ensure we show EVERYTHING)
         unique_original_mfgs = set()
-        if hasattr(xml_gen_page, 'combined_data'):
-            data = xml_gen_page.combined_data
+        pas_search_page = self.wizard().page(3)  # PASSearchPage is page 3
+        if pas_search_page and hasattr(pas_search_page, 'combined_data'):
+            data = pas_search_page.combined_data
             if hasattr(data, 'to_dict'):
                 data = data.to_dict('records')
             for row in data:

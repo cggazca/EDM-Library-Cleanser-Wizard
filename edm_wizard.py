@@ -4519,7 +4519,7 @@ class SupplyFrameReviewPage(QWizardPage):
             self.norm_table.setRowCount(len(normalizations))
 
             row_idx = 0
-            for original, canonical in normalizations.items():
+            for original, canonical in sorted(normalizations.items()):
                 method = reasoning_map.get(original, {}).get('method', 'manual')
                 score = reasoning_map.get(original, {}).get('score', 0)
                 

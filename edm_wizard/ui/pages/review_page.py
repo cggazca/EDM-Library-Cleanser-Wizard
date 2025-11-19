@@ -758,6 +758,49 @@ class SupplyFrameReviewPage(QWizardPage):
         right_layout = QVBoxLayout(right_widget)
 
         if show_actions == "editable":
+            # For editable None tab, show bulk re-search section
+            bulk_research_group = QGroupBox("🔄 Bulk Re-search")
+            bulk_research_layout = QVBoxLayout()
+
+            # Bulk re-search button
+            bulk_research_btn = QPushButton("🔍 Re-search All Parts")
+            bulk_research_btn.setToolTip(
+                "Re-search all parts in the None category using current values.\n\n"
+                "This will re-run the PAS search for all parts in the table,\n"
+                "using any modifications you've made to Part Numbers or Manufacturers."
+            )
+            bulk_research_btn.clicked.connect(self.bulk_research_none_parts)
+            bulk_research_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #4CAF50;
+                    color: white;
+                    font-weight: bold;
+                    padding: 10px;
+                    font-size: 14px;
+                }
+                QPushButton:hover {
+                    background-color: #45a049;
+                }
+                QPushButton:disabled {
+                    background-color: #cccccc;
+                }
+            """)
+            bulk_research_layout.addWidget(bulk_research_btn)
+
+            # Progress bar for bulk re-search
+            self.none_research_progress_label = QLabel("")
+            bulk_research_layout.addWidget(self.none_research_progress_label)
+
+            self.none_research_progress_bar = QProgressBar()
+            self.none_research_progress_bar.setVisible(False)
+            bulk_research_layout.addWidget(self.none_research_progress_bar)
+
+            bulk_research_group.setLayout(bulk_research_layout)
+            right_layout.addWidget(bulk_research_group)
+
+            # Store button reference for enabling/disabling
+            self.bulk_research_btn = bulk_research_btn
+
             # For editable None tab, show instructions
             info_label = QLabel(
                 "<h3>No Matches Found</h3>"
@@ -765,6 +808,7 @@ class SupplyFrameReviewPage(QWizardPage):
                 "<ul>"
                 "<li><b>Edit</b> the Part Number or MFG fields directly in the table</li>"
                 "<li>Click <b>🔍 Re-search</b> to search again with the modified values</li>"
+                "<li>Click <b>🔍 Re-search All Parts</b> to batch re-search all parts</li>"
                 "<li>If a match is found, the part will move to the appropriate tab</li>"
                 "</ul>"
                 "<p style='color: #666; font-size: 10pt;'>"
@@ -1106,6 +1150,209 @@ class SupplyFrameReviewPage(QWizardPage):
             if btn:
                 btn.setEnabled(True)
                 btn.setText("🔍 Re-search")
+
+    def bulk_research_none_parts(self):
+        """Re-search all parts in the None category using PASSearchThread"""
+        if not self.none_parts:
+            QMessageBox.information(self, "No Parts", "There are no parts in the None category to re-search.")
+            return
+
+        # Get PAS search page to access the PAS client
+        pas_page = self.wizard().page(3)  # PASSearchPage is page 3
+        if not pas_page or not hasattr(pas_page, 'pas_client'):
+            QMessageBox.warning(self, "Error", "PAS API client not available.\n\nPlease ensure you completed Step 3 (PAS Search).")
+            return
+
+        # Collect parts data from the table (with current values)
+        parts_to_search = []
+        for row_idx in range(len(self.none_parts)):
+            # Get the current values from the table cells (in case user edited them)
+            pn_item = self.none_table.item(row_idx, 0)
+            mfg_item = self.none_table.item(row_idx, 1)
+
+            if not pn_item:
+                continue
+
+            part_number = pn_item.text().strip()
+            manufacturer = mfg_item.text().strip() if mfg_item else ""
+
+            # Only require part number
+            if not part_number:
+                continue
+
+            # Get the original part data
+            part = self.none_parts[row_idx]
+
+            # Store original values if not already stored
+            if 'original_pn' not in part:
+                part['original_pn'] = part.get('PartNumber', '')
+            if 'original_mfg' not in part:
+                part['original_mfg'] = part.get('ManufacturerName', '')
+
+            # Update the part data with current table values
+            part['PartNumber'] = part_number
+            part['ManufacturerName'] = manufacturer
+
+            # Add to search list (convert to format expected by PASSearchThread)
+            parts_to_search.append({
+                'MFG': manufacturer,
+                'MFG_PN': part_number,
+                'Description': part.get('Description', ''),
+                '_row_idx': row_idx  # Track original row index
+            })
+
+        if not parts_to_search:
+            QMessageBox.warning(self, "No Valid Parts", "No valid parts to search (all missing Part Numbers).")
+            return
+
+        # Disable the button and show progress
+        self.bulk_research_btn.setEnabled(False)
+        self.none_research_progress_bar.setVisible(True)
+        self.none_research_progress_bar.setMaximum(len(parts_to_search))
+        self.none_research_progress_bar.setValue(0)
+        self.none_research_progress_label.setText("Starting bulk re-search...")
+
+        # Create and start the PAS search thread
+        from edm_wizard.workers.threads import PASSearchThread
+        self.bulk_research_thread = PASSearchThread(pas_page.pas_client, parts_to_search, max_workers=15)
+        self.bulk_research_thread.progress.connect(self.on_bulk_research_progress)
+        self.bulk_research_thread.result_ready.connect(self.on_bulk_research_result)
+        self.bulk_research_thread.finished.connect(self.on_bulk_research_finished)
+        self.bulk_research_thread.error.connect(self.on_bulk_research_error)
+        self.bulk_research_thread.start()
+
+    def on_bulk_research_progress(self, message, current, total):
+        """Update progress during bulk re-search"""
+        self.none_research_progress_label.setText(message)
+        self.none_research_progress_bar.setValue(current)
+
+    def on_bulk_research_result(self, result):
+        """Handle individual result during bulk re-search (optional - for real-time updates)"""
+        # We'll process all results in on_bulk_research_finished instead
+        pass
+
+    def on_bulk_research_finished(self, results):
+        """Handle completion of bulk re-search"""
+        try:
+            # Track changes for summary
+            moved_to_found = 0
+            moved_to_multiple = 0
+            moved_to_review = 0
+            still_none = 0
+            errors = 0
+
+            # Process results and update parts
+            parts_to_remove = []  # Track indices to remove from none_parts
+            for result in results:
+                part_number = result['PartNumber']
+                manufacturer = result['ManufacturerName']
+                status = result['MatchStatus']
+                matches = result.get('matches', [])
+
+                # Find the corresponding part in none_parts
+                part_found = None
+                part_idx = None
+                for idx, part in enumerate(self.none_parts):
+                    if part.get('PartNumber') == part_number and part.get('ManufacturerName') == manufacturer:
+                        part_found = part
+                        part_idx = idx
+                        break
+
+                if not part_found:
+                    continue
+
+                # Update part data
+                part_found['MatchStatus'] = status
+                part_found['matches'] = matches
+                part_found['re_searched'] = True
+                part_found['original_status'] = 'None'
+
+                # Update search_results to reflect the change
+                for search_result in self.search_results:
+                    original_pn = part_found.get('original_pn', part_found['PartNumber'])
+                    original_mfg = part_found.get('original_mfg', part_found['ManufacturerName'])
+                    if (search_result.get('PartNumber') == original_pn and
+                        search_result.get('ManufacturerName') == original_mfg):
+                        search_result['MatchStatus'] = status
+                        search_result['matches'] = matches
+                        break
+
+                # Categorize and track for removal from none_parts
+                if status == 'Found':
+                    self.found_parts.append(part_found)
+                    if matches:
+                        part_found['selected_match'] = matches[0]
+                    parts_to_remove.append(part_idx)
+                    moved_to_found += 1
+                elif status == 'Multiple':
+                    self.multiple_parts.append(part_found)
+                    parts_to_remove.append(part_idx)
+                    moved_to_multiple += 1
+                elif status == 'Need user review':
+                    self.need_review_parts.append(part_found)
+                    parts_to_remove.append(part_idx)
+                    moved_to_review += 1
+                elif status == 'Error':
+                    errors += 1
+                else:  # Still 'None'
+                    still_none += 1
+
+            # Remove parts from none_parts (in reverse order to maintain indices)
+            for idx in sorted(parts_to_remove, reverse=True):
+                self.none_parts.pop(idx)
+
+            # Re-populate all tabs to reflect changes
+            self.populate_category_table(self.found_table, self.found_parts, show_actions=False)
+            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+            self.populate_category_table(self.none_table, self.none_parts, show_actions="editable")
+
+            # Update tab counts
+            self.review_tabs.setTabText(0, f"⚠ Multiple ({len(self.multiple_parts)})")
+            self.review_tabs.setTabText(1, f"👁 Need Review ({len(self.need_review_parts)})")
+            self.review_tabs.setTabText(2, f"✓ Found ({len(self.found_parts)})")
+            self.review_tabs.setTabText(3, f"✗ None ({len(self.none_parts)})")
+
+            # Update summary display
+            self.update_summary_display(
+                self.found_parts,
+                self.multiple_parts,
+                self.need_review_parts,
+                self.none_parts,
+                self.errors_parts
+            )
+
+            # Show summary message
+            summary = f"Bulk re-search completed!\n\n"
+            summary += f"Results:\n"
+            summary += f"  • Moved to Found: {moved_to_found}\n"
+            summary += f"  • Moved to Multiple: {moved_to_multiple}\n"
+            summary += f"  • Moved to Need Review: {moved_to_review}\n"
+            summary += f"  • Still None: {still_none}\n"
+            if errors > 0:
+                summary += f"  • Errors: {errors}\n"
+
+            self.none_research_progress_label.setText("✓ Bulk re-search completed!")
+            self.none_research_progress_label.setStyleSheet("color: green; font-weight: bold;")
+
+            QMessageBox.information(self, "Bulk Re-search Complete", summary)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error processing bulk re-search results:\n{str(e)}")
+
+        finally:
+            # Re-enable the button and hide progress
+            self.bulk_research_btn.setEnabled(True)
+            self.none_research_progress_bar.setVisible(False)
+
+    def on_bulk_research_error(self, error_msg):
+        """Handle error during bulk re-search"""
+        self.none_research_progress_label.setText(f"✗ Bulk re-search failed: {error_msg[:50]}...")
+        self.none_research_progress_label.setStyleSheet("color: red;")
+        self.bulk_research_btn.setEnabled(True)
+        self.none_research_progress_bar.setVisible(False)
+
+        QMessageBox.critical(self, "Bulk Re-search Error", f"Bulk re-search failed:\n{error_msg}")
 
     def show_none_table_context_menu(self, position):
         """Show context menu for None table cells to allow reverting changes"""

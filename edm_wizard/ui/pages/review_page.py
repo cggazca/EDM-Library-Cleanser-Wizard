@@ -1482,19 +1482,23 @@ class SupplyFrameReviewPage(QWizardPage):
         right_layout.addWidget(QLabel("Available Matches:"))
 
         self.matches_table = QTableWidget()
-        self.matches_table.setColumnCount(5)
-        self.matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Similarity", "AI Score"])
+        self.matches_table.setColumnCount(9)  # Updated to match new column structure
+        self.matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
         self.matches_table.setSortingEnabled(True)  # Enable sorting
         self.matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
 
         # Set column resize modes
         header = self.matches_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select column - fit to content
-        header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number - stretch
-        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer - stretch
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Similarity - fit to content
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score - fit to content
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Option
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Select
+        header.setSectionResizeMode(2, QHeaderView.Stretch)  # Part Number
+        header.setSectionResizeMode(3, QHeaderView.Stretch)  # Manufacturer
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Lifecycle Status
+        header.setSectionResizeMode(5, QHeaderView.Stretch)  # External ID
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Similarity
+        header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # AI Score
+        header.setSectionResizeMode(8, QHeaderView.Stretch)  # AI Reasoning
 
         right_layout.addWidget(self.matches_table)
 

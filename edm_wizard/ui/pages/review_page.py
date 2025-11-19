@@ -698,6 +698,8 @@ class SupplyFrameReviewPage(QWizardPage):
             # Enable context menu for None table to allow reverting changes
             parts_table.setContextMenuPolicy(Qt.CustomContextMenu)
             parts_table.customContextMenuRequested.connect(self.show_none_table_context_menu)
+            # Enable immediate change detection when cells are edited
+            parts_table.itemChanged.connect(self.on_none_table_item_changed)
         elif category == "Errors":
             self.errors_table = parts_table
         
@@ -1258,6 +1260,66 @@ class SupplyFrameReviewPage(QWizardPage):
         message += "</table>"
 
         QMessageBox.information(self, "Original Values Preview", message)
+
+    def on_none_table_item_changed(self, item):
+        """Handle immediate change detection when cells are edited in the None table"""
+        if not item:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        # Only handle MFG PN (col 0) and MFG (col 1) columns
+        if col not in [0, 1]:
+            return
+
+        # Get the part data
+        if row >= len(self.none_parts):
+            return
+
+        part = self.none_parts[row]
+
+        # Store original values if not already stored
+        if 'original_pn' not in part:
+            part['original_pn'] = part.get('PartNumber', '')
+        if 'original_mfg' not in part:
+            part['original_mfg'] = part.get('ManufacturerName', '')
+
+        # Update the part data with the new value immediately
+        new_value = item.text().strip()
+
+        if col == 0:  # MFG PN column
+            old_value = part.get('PartNumber', '')
+            if new_value != old_value:
+                part['PartNumber'] = new_value
+                # Mark as modified
+                part['modified'] = True
+                # Update tooltip to show original value
+                item.setToolTip(f"Original: {part['original_pn']}\nCurrent: {new_value}\nRight-click to revert")
+                # Visual indicator for changed cells (light yellow background)
+                item.setBackground(QColor(255, 255, 200))
+                print(f"DEBUG: None table - Part Number changed in row {row}: '{old_value}' → '{new_value}'")
+
+        elif col == 1:  # MFG column
+            old_value = part.get('ManufacturerName', '')
+            if new_value != old_value:
+                part['ManufacturerName'] = new_value
+                # Mark as modified
+                part['modified'] = True
+                # Update tooltip to show original value
+                item.setToolTip(f"Original: {part['original_mfg']}\nCurrent: {new_value}\nRight-click to revert")
+                # Visual indicator for changed cells (light yellow background)
+                item.setBackground(QColor(255, 255, 200))
+                print(f"DEBUG: None table - Manufacturer changed in row {row}: '{old_value}' → '{new_value}'")
+
+        # Update search_results to reflect the change immediately
+        for result in self.search_results:
+            if (result.get('PartNumber') == part.get('original_pn', part['PartNumber']) and
+                result.get('ManufacturerName') == part.get('original_mfg', part['ManufacturerName'])):
+                result['PartNumber'] = part['PartNumber']
+                result['ManufacturerName'] = part['ManufacturerName']
+                result['modified'] = True
+                break
 
     def auto_select_highest_for_category(self, category):
         """Auto-select highest similarity matches for a specific category"""

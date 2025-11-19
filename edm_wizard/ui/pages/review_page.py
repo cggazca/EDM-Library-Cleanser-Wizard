@@ -525,15 +525,23 @@ class SupplyFrameReviewPage(QWizardPage):
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 3, normalize_combo)
 
-                # Column 4: AI Score - show score percentage
+                # Column 4: Similarity - show fuzzy match score only
+                similarity_item = QTableWidgetItem("")
+                similarity_item.setTextAlignment(Qt.AlignCenter)
+                if method == 'fuzzy' and score > 0:
+                    similarity_item.setText(f"{score}%")
+                    similarity_item.setToolTip(f"Fuzzy match similarity: {score}%")
+                self.norm_table.setItem(row_idx, 4, similarity_item)
+
+                # Column 5: AI Score - show AI confidence score only
                 ai_score_item = QTableWidgetItem("")
                 ai_score_item.setTextAlignment(Qt.AlignCenter)
-                if method in ['fuzzy', 'ai'] and score > 0:
+                if method == 'ai' and score > 0:
                     ai_score_item.setText(f"{score}%")
-                    ai_score_item.setToolTip(f"{method.capitalize()} match confidence: {score}%")
-                self.norm_table.setItem(row_idx, 4, ai_score_item)
+                    ai_score_item.setToolTip(f"AI match confidence: {score}%")
+                self.norm_table.setItem(row_idx, 5, ai_score_item)
 
-                # Column 5: AI Analyze button
+                # Column 6: AI Analyze button
                 ai_btn = QPushButton("🤖 AI")
                 ai_btn.setMaximumWidth(60)
                 ai_btn.setToolTip("Run AI analysis for this manufacturer")
@@ -552,15 +560,15 @@ class SupplyFrameReviewPage(QWizardPage):
                 ai_btn_layout.addWidget(ai_btn)
                 ai_btn_layout.setAlignment(Qt.AlignCenter)
                 ai_btn_layout.setContentsMargins(0, 0, 0, 0)
-                self.norm_table.setCellWidget(row_idx, 5, ai_btn_widget)
+                self.norm_table.setCellWidget(row_idx, 6, ai_btn_widget)
 
-                # Column 6: Scope dropdown
+                # Column 7: Scope dropdown
                 scope_combo = QComboBox()
                 scope_combo.addItems(["All Catalogs", "Per Catalog"])
                 # Disable mouse wheel to prevent accidental changes while scrolling
                 scope_combo.wheelEvent = lambda event: event.ignore()
                 scope_combo.setFocusPolicy(Qt.StrongFocus)
-                self.norm_table.setCellWidget(row_idx, 6, scope_combo)
+                self.norm_table.setCellWidget(row_idx, 7, scope_combo)
 
                 row_idx += 1
 
@@ -1611,8 +1619,8 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Normalization table
         self.norm_table = QTableWidget()
-        self.norm_table.setColumnCount(7)  # Increased from 6 to 7
-        self.norm_table.setHorizontalHeaderLabels(["Include", "Status", "Original MFG", "Normalize To", "AI Score", "AI Analyze", "Scope"])
+        self.norm_table.setColumnCount(8)  # Increased from 7 to 8 (added Similarity column)
+        self.norm_table.setHorizontalHeaderLabels(["Include", "Status", "Original MFG", "Normalize To", "Similarity", "AI Score", "AI Analyze", "Scope"])
         self.norm_table.setSortingEnabled(True)  # Enable sorting
         self.norm_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.norm_table.customContextMenuRequested.connect(self.show_normalization_context_menu)
@@ -1623,9 +1631,10 @@ class SupplyFrameReviewPage(QWizardPage):
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Status
         header.setSectionResizeMode(2, QHeaderView.Stretch)  # Original MFG
         header.setSectionResizeMode(3, QHeaderView.Stretch)  # Normalize To
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # AI Score
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # AI Analyze button
-        header.setSectionResizeMode(6, QHeaderView.Stretch)  # Scope
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Similarity (fuzzy match score)
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # AI Score
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # AI Analyze button
+        header.setSectionResizeMode(7, QHeaderView.Stretch)  # Scope
         
         norm_layout.addWidget(self.norm_table)
 
@@ -2842,15 +2851,23 @@ class SupplyFrameReviewPage(QWizardPage):
             normalize_combo.setCurrentText(canonical)
             self.norm_table.setCellWidget(row_idx, 3, normalize_combo)
 
-            # Column 4: AI Score - show score percentage
+            # Column 4: Similarity - show fuzzy match score only
+            similarity_item = QTableWidgetItem("")
+            similarity_item.setTextAlignment(Qt.AlignCenter)
+            if method == 'fuzzy' and score > 0:
+                similarity_item.setText(f"{score}%")
+                similarity_item.setToolTip(f"Fuzzy match similarity: {score}%")
+            self.norm_table.setItem(row_idx, 4, similarity_item)
+
+            # Column 5: AI Score - show AI confidence score only
             ai_score_item = QTableWidgetItem("")
             ai_score_item.setTextAlignment(Qt.AlignCenter)
-            if method in ['fuzzy', 'ai'] and score > 0:
+            if method == 'ai' and score > 0:
                 ai_score_item.setText(f"{score}%")
-                ai_score_item.setToolTip(f"{method.capitalize()} match confidence: {score}%")
-            self.norm_table.setItem(row_idx, 4, ai_score_item)
+                ai_score_item.setToolTip(f"AI match confidence: {score}%")
+            self.norm_table.setItem(row_idx, 5, ai_score_item)
 
-            # Column 5: AI Analyze button
+            # Column 6: AI Analyze button
             ai_btn = QPushButton("🤖 AI")
             ai_btn.setMaximumWidth(60)
             ai_btn.setToolTip("Run AI analysis for this manufacturer")
@@ -2869,15 +2886,15 @@ class SupplyFrameReviewPage(QWizardPage):
             ai_btn_layout.addWidget(ai_btn)
             ai_btn_layout.setAlignment(Qt.AlignCenter)
             ai_btn_layout.setContentsMargins(0, 0, 0, 0)
-            self.norm_table.setCellWidget(row_idx, 5, ai_btn_widget)
+            self.norm_table.setCellWidget(row_idx, 6, ai_btn_widget)
 
-            # Column 6: Scope dropdown
+            # Column 7: Scope dropdown
             scope_combo = QComboBox()
             scope_combo.addItems(["All Catalogs", "Per Catalog"])
             # Disable mouse wheel
             scope_combo.wheelEvent = lambda event: event.ignore()
             scope_combo.setFocusPolicy(Qt.StrongFocus)
-            self.norm_table.setCellWidget(row_idx, 6, scope_combo)
+            self.norm_table.setCellWidget(row_idx, 7, scope_combo)
 
             # Note: Color coding is already applied to Status column above
             # No need for additional row color coding
@@ -3069,15 +3086,15 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             if checkbox and original_mfg != canonical_name:
                 checkbox.setChecked(True)
 
-        # Update AI Score column
-        ai_score_item = self.norm_table.item(row_idx, 4)
+        # Update AI Score column (now column 5)
+        ai_score_item = self.norm_table.item(row_idx, 5)
         if ai_score_item:
             ai_score_item.setText("")
             ai_score_item.setToolTip("AI analysis performed")
 
     def on_scope_changed(self, row_idx, combo_idx):
         """Handle scope dropdown changes"""
-        scope_combo = self.norm_table.cellWidget(row_idx, 6)  # Column 6: Scope
+        scope_combo = self.norm_table.cellWidget(row_idx, 7)  # Column 7: Scope
         if not scope_combo:
             return
 
@@ -3268,7 +3285,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
 
                 variation_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
                 canonical_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
-                scope_combo = self.norm_table.cellWidget(row_idx, 6)  # Column 6: Scope
+                scope_combo = self.norm_table.cellWidget(row_idx, 7)  # Column 7: Scope
 
                 if not variation_item or not canonical_combo or not scope_combo:
                     continue

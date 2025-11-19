@@ -72,6 +72,27 @@ class SupplyFrameReviewPage(QWizardPage):
         main_splitter = QSplitter(Qt.Vertical)
         main_splitter.setChildrenCollapsible(True)  # Allow sections to be collapsed via splitter
 
+        # Style the splitter handle to make it more noticeable
+        main_splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #d0d0d0;
+                border: 1px solid #a0a0a0;
+                height: 8px;
+            }
+            QSplitter::handle:vertical {
+                height: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
+                border-top: 1px solid #a0a0a0;
+                border-bottom: 1px solid #a0a0a0;
+            }
+            QSplitter::handle:hover {
+                background-color: #0078d7;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #4da6ff, stop:0.5 #0078d7, stop:1 #4da6ff);
+            }
+        """)
+
         # Section 1: Match Results Summary (auto-loaded from PASSearchPage)
         self.summary_group = self.create_summary_section_widget()
         main_splitter.addWidget(self.summary_group)
@@ -626,7 +647,28 @@ class SupplyFrameReviewPage(QWizardPage):
         
         # Create horizontal splitter for two-panel layout
         splitter = QSplitter(Qt.Horizontal)
-        
+
+        # Style the splitter handle to make it more noticeable
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #d0d0d0;
+                border: 1px solid #a0a0a0;
+                width: 8px;
+            }
+            QSplitter::handle:horizontal {
+                width: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
+                border-left: 1px solid #a0a0a0;
+                border-right: 1px solid #a0a0a0;
+            }
+            QSplitter::handle:hover {
+                background-color: #0078d7;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4da6ff, stop:0.5 #0078d7, stop:1 #4da6ff);
+            }
+        """)
+
         # Left panel: Parts list
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
@@ -1579,6 +1621,28 @@ class SupplyFrameReviewPage(QWizardPage):
 
         # Splitter
         splitter = QSplitter(Qt.Horizontal)
+
+        # Style the splitter handle to make it more noticeable
+        splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #d0d0d0;
+                border: 1px solid #a0a0a0;
+                width: 8px;
+            }
+            QSplitter::handle:horizontal {
+                width: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
+                border-left: 1px solid #a0a0a0;
+                border-right: 1px solid #a0a0a0;
+            }
+            QSplitter::handle:hover {
+                background-color: #0078d7;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4da6ff, stop:0.5 #0078d7, stop:1 #4da6ff);
+            }
+        """)
+
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
         splitter.setSizes([400, 600])

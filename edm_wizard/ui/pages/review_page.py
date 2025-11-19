@@ -829,8 +829,8 @@ class SupplyFrameReviewPage(QWizardPage):
             right_layout.addWidget(QLabel("Available Matches:"))
 
             matches_table = QTableWidget()
-            matches_table.setColumnCount(9)  # Increased from 7 to 9 (added Option # and AI Reasoning)
-            matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
+            matches_table.setColumnCount(8)  # Option #, Select, Part Number, Manufacturer, Lifecycle Status, External ID, Similarity, AI Score
+            matches_table.setHorizontalHeaderLabels(["Option #", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score"])
             matches_table.setSortingEnabled(True)  # Enable sorting
             matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
             matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
@@ -845,7 +845,6 @@ class SupplyFrameReviewPage(QWizardPage):
             header.setSectionResizeMode(5, QHeaderView.Stretch)  # External ID
             header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Similarity
             header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # AI Score
-            header.setSectionResizeMode(8, QHeaderView.Stretch)  # AI Reasoning
             
             right_layout.addWidget(matches_table)
             
@@ -1594,8 +1593,8 @@ class SupplyFrameReviewPage(QWizardPage):
         right_layout.addWidget(QLabel("Available Matches:"))
 
         self.matches_table = QTableWidget()
-        self.matches_table.setColumnCount(9)  # Updated to match new column structure
-        self.matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
+        self.matches_table.setColumnCount(8)  # Option #, Select, Part Number, Manufacturer, Lifecycle Status, External ID, Similarity, AI Score
+        self.matches_table.setHorizontalHeaderLabels(["Option #", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score"])
         self.matches_table.setSortingEnabled(True)  # Enable sorting
         self.matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
@@ -1610,7 +1609,6 @@ class SupplyFrameReviewPage(QWizardPage):
         header.setSectionResizeMode(5, QHeaderView.Stretch)  # External ID
         header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Similarity
         header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # AI Score
-        header.setSectionResizeMode(8, QHeaderView.Stretch)  # AI Reasoning
 
         right_layout.addWidget(self.matches_table)
 
@@ -2112,8 +2110,12 @@ class SupplyFrameReviewPage(QWizardPage):
             # Remove all buttons from the old group
             for button in matches_table.button_group.buttons():
                 matches_table.button_group.removeButton(button)
-            # Delete the old button group
-            matches_table.button_group.deleteLater()
+            # Set parent to None and delete immediately
+            old_group = matches_table.button_group
+            old_group.setParent(None)
+            matches_table.button_group = None
+            # Force immediate deletion by calling destructor
+            del old_group
 
         # Create a new button group to ensure only one radio button can be selected at a time
         button_group = QButtonGroup(matches_table)  # Set parent to matches_table
@@ -2124,6 +2126,16 @@ class SupplyFrameReviewPage(QWizardPage):
         # Calculate similarity scores for confidence
         from difflib import SequenceMatcher
         original_pn = part.get('PartNumber', '').upper().strip()
+
+        # Find the match with the highest AI score (if any)
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_processed') and part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
 
         for match_idx, match in enumerate(matches):
             # Extract match information using helper function
@@ -2204,15 +2216,6 @@ class SupplyFrameReviewPage(QWizardPage):
                     has_ai_score = True
             matches_table.setItem(match_idx, 7, ai_score_item)
 
-            # Column 8: AI Reasoning - show on the row with AI score
-            ai_reasoning_item = QTableWidgetItem("")
-            if has_ai_score and part.get('ai_reasoning'):
-                # This match has the AI score, so show the reasoning here
-                reasoning = part.get('ai_reasoning', '')
-                ai_reasoning_item.setText(reasoning)
-                ai_reasoning_item.setToolTip(reasoning)
-            matches_table.setItem(match_idx, 8, ai_reasoning_item)
-
     def on_match_selected(self, part, match, checked):
         """Handle match selection"""
         if checked:
@@ -2246,8 +2249,12 @@ class SupplyFrameReviewPage(QWizardPage):
             # Remove all buttons from the old group
             for button in self.matches_table.button_group.buttons():
                 self.matches_table.button_group.removeButton(button)
-            # Delete the old button group
-            self.matches_table.button_group.deleteLater()
+            # Set parent to None and delete immediately
+            old_group = self.matches_table.button_group
+            old_group.setParent(None)
+            self.matches_table.button_group = None
+            # Force immediate deletion by calling destructor
+            del old_group
 
         # Create a new button group to ensure only one radio button can be selected at a time
         button_group = QButtonGroup(self.matches_table)  # Set parent to matches_table
@@ -2257,6 +2264,16 @@ class SupplyFrameReviewPage(QWizardPage):
 
         from difflib import SequenceMatcher
         original_pn = part['PartNumber'].upper().strip()
+
+        # Find the match with the highest AI score (if any)
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_processed') and part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
 
         for match_idx, match in enumerate(part['matches']):
             # Extract match information using helper function
@@ -2335,31 +2352,42 @@ class SupplyFrameReviewPage(QWizardPage):
                     has_ai_score = True
             self.matches_table.setItem(match_idx, 7, ai_score_item)
 
-            # Column 8: AI Reasoning - show on the row with AI score
-            ai_reasoning_item = QTableWidgetItem("")
-            if has_ai_score and part.get('ai_reasoning'):
-                # This match has the AI score, so show the reasoning here
-                reasoning = part.get('ai_reasoning', '')
-                ai_reasoning_item.setText(reasoning)
-                ai_reasoning_item.setToolTip(reasoning)
-            self.matches_table.setItem(match_idx, 8, ai_reasoning_item)
-
     def show_match_context_menu(self, position):
         """Show context menu for matches table"""
-        row = self.matches_table.rowAt(position.y())
+        # Determine which matches table triggered the context menu
+        sender = self.sender()
+
+        # Determine which table and parts list to use based on sender
+        if sender == self.multiple_matches_table:
+            matches_table = self.multiple_matches_table
+            parts_list = self.multiple_table
+            parts_data = self.multiple_parts
+        elif sender == self.need_review_matches_table:
+            matches_table = self.need_review_matches_table
+            parts_list = self.need_review_table
+            parts_data = self.need_review_parts
+        elif hasattr(self, 'matches_table') and sender == self.matches_table:
+            # Legacy single table layout
+            matches_table = self.matches_table
+            parts_list = self.parts_list
+            parts_data = self.parts_needing_review
+        else:
+            return
+
+        row = matches_table.rowAt(position.y())
         if row < 0:
             return
 
         # Get the currently selected part
-        selected_rows = self.parts_list.selectedIndexes()
+        selected_rows = parts_list.selectedIndexes()
         if not selected_rows:
             return
 
         part_idx = selected_rows[0].row()
-        if part_idx >= len(self.parts_needing_review):
+        if part_idx >= len(parts_data):
             return
 
-        part = self.parts_needing_review[part_idx]
+        part = parts_data[part_idx]
 
         # Only show menu if AI has processed this part
         if not part.get('ai_processed') or not part.get('ai_reasoning'):
@@ -2371,8 +2399,21 @@ class SupplyFrameReviewPage(QWizardPage):
 
         match = part['matches'][row]
 
-        # Only show reasoning if this is the AI-suggested match
-        if match != part.get('selected_match'):
+        # Extract match_string using helper function
+        mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
+
+        # Find the match with the highest AI score
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
+
+        # Only show reasoning if this match has the highest AI score
+        if match_string != highest_ai_score_match_string:
             return
 
         # Create context menu

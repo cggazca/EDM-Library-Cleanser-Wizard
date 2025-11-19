@@ -1092,6 +1092,45 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Move part to appropriate category if match found
             if status != 'None' and status != 'Error':
+                # Extract manufacturers from new matches and update canonical list
+                if part['matches']:
+                    new_manufacturers = set()
+                    for match in part['matches']:
+                        _, mfg, _, _, _, _, _ = self._get_match_info(match)
+                        if mfg and mfg.strip():
+                            new_manufacturers.add(mfg.strip())
+
+                    # Update canonical_manufacturers list with new manufacturers
+                    if new_manufacturers:
+                        if not hasattr(self, 'canonical_manufacturers'):
+                            self.canonical_manufacturers = []
+
+                        manufacturers_added = []
+                        for mfg in new_manufacturers:
+                            if mfg not in self.canonical_manufacturers:
+                                self.canonical_manufacturers.append(mfg)
+                                manufacturers_added.append(mfg)
+
+                        if manufacturers_added:
+                            # Keep the list sorted
+                            self.canonical_manufacturers.sort()
+                            print(f"DEBUG: Added {len(manufacturers_added)} new manufacturer(s) to canonical list: {', '.join(manufacturers_added)}")
+
+                            # Update all normalization dropdowns to include new manufacturers
+                            if hasattr(self, 'norm_table') and self.norm_table.rowCount() > 0:
+                                for norm_row_idx in range(self.norm_table.rowCount()):
+                                    normalize_combo = self.norm_table.cellWidget(norm_row_idx, 3)  # Column 3: Normalize To
+                                    if normalize_combo:
+                                        current_selection = normalize_combo.currentText()
+                                        # Rebuild dropdown with updated list
+                                        normalize_combo.clear()
+                                        for mfg in sorted(self.canonical_manufacturers):
+                                            normalize_combo.addItem(mfg)
+                                        # Restore previous selection if it still exists
+                                        idx = normalize_combo.findText(current_selection)
+                                        if idx >= 0:
+                                            normalize_combo.setCurrentIndex(idx)
+
                 # Remove from none_parts
                 self.none_parts.pop(row_idx)
 
@@ -3808,6 +3847,60 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
 
                 if normalizations_applied > 0:
                     print(f"DEBUG: Applied {normalizations_applied} manufacturer normalizations")
+
+            # Ask user if they want to apply normalizations to None category
+            apply_to_none = False
+            if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations and hasattr(self, 'none_parts') and self.none_parts:
+                # Count how many parts in None category would be affected
+                none_affected = 0
+                for row_idx in range(self.norm_table.rowCount()):
+                    include_widget = self.norm_table.cellWidget(row_idx, 0)
+                    if not include_widget:
+                        continue
+                    include_checkbox = include_widget.findChild(QCheckBox)
+                    if include_checkbox and include_checkbox.isChecked():
+                        original_item = self.norm_table.item(row_idx, 2)
+                        if original_item:
+                            original_mfg = original_item.text()
+                            # Count parts in none_parts that match this manufacturer
+                            for part in self.none_parts:
+                                if part.get('ManufacturerName', '') == original_mfg:
+                                    none_affected += 1
+                                    break  # Count this normalization only once
+
+                if none_affected > 0:
+                    reply = QMessageBox.question(self, "Apply to None Category?",
+                        f"Would you like to apply manufacturer normalizations to the '{none_affected}' part(s) in the 'None' category?\n\n"
+                        f"This will update manufacturer names for parts that have not yet been found in PAS.",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                    apply_to_none = (reply == QMessageBox.Yes)
+
+            # Apply normalizations to None category if user agreed
+            if apply_to_none:
+                none_normalizations_applied = 0
+                for row_idx in range(self.norm_table.rowCount()):
+                    include_widget = self.norm_table.cellWidget(row_idx, 0)
+                    if not include_widget:
+                        continue
+                    include_checkbox = include_widget.findChild(QCheckBox)
+                    if include_checkbox and include_checkbox.isChecked():
+                        original_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
+                        normalize_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
+
+                        if original_item and normalize_combo:
+                            original_mfg = original_item.text()
+                            canonical_mfg = normalize_combo.currentText()
+
+                            # Apply to none_parts
+                            for part in self.none_parts:
+                                if part.get('ManufacturerName', '') == original_mfg:
+                                    part['ManufacturerName'] = canonical_mfg
+                                    none_normalizations_applied += 1
+
+                if none_normalizations_applied > 0:
+                    print(f"DEBUG: Applied {none_normalizations_applied} manufacturer normalizations to None category")
+                    # Refresh the None table to show updated values
+                    self.populate_category_table(self.none_table, self.none_parts, show_actions="editable")
 
             # Read existing sheets from output Excel
             with pd.ExcelFile(output_excel) as xls:

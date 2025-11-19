@@ -778,7 +778,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
             matches_table = QTableWidget()
             matches_table.setColumnCount(9)  # Increased from 7 to 9 (added Option # and AI Reasoning)
-            matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
+            matches_table.setHorizontalHeaderLabels(["Option #", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
             matches_table.setSortingEnabled(True)  # Enable sorting
             matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
             matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
@@ -1483,7 +1483,7 @@ class SupplyFrameReviewPage(QWizardPage):
 
         self.matches_table = QTableWidget()
         self.matches_table.setColumnCount(9)  # Updated to match new column structure
-        self.matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
+        self.matches_table.setHorizontalHeaderLabels(["Option #", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
         self.matches_table.setSortingEnabled(True)  # Enable sorting
         self.matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
@@ -1977,8 +1977,12 @@ class SupplyFrameReviewPage(QWizardPage):
             # Remove all buttons from the old group
             for button in matches_table.button_group.buttons():
                 matches_table.button_group.removeButton(button)
-            # Delete the old button group
-            matches_table.button_group.deleteLater()
+            # Set parent to None and delete immediately
+            old_group = matches_table.button_group
+            old_group.setParent(None)
+            matches_table.button_group = None
+            # Force immediate deletion by calling destructor
+            del old_group
 
         # Create a new button group to ensure only one radio button can be selected at a time
         button_group = QButtonGroup(matches_table)  # Set parent to matches_table
@@ -1989,6 +1993,16 @@ class SupplyFrameReviewPage(QWizardPage):
         # Calculate similarity scores for confidence
         from difflib import SequenceMatcher
         original_pn = part.get('PartNumber', '').upper().strip()
+
+        # Find the match with the highest AI score (if any)
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_processed') and part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
 
         for match_idx, match in enumerate(matches):
             # Extract match information using helper function
@@ -2069,10 +2083,10 @@ class SupplyFrameReviewPage(QWizardPage):
                     has_ai_score = True
             matches_table.setItem(match_idx, 7, ai_score_item)
 
-            # Column 8: AI Reasoning - show on the row with AI score
+            # Column 8: AI Reasoning - only show on the row with the HIGHEST AI score
             ai_reasoning_item = QTableWidgetItem("")
-            if has_ai_score and part.get('ai_reasoning'):
-                # This match has the AI score, so show the reasoning here
+            if has_ai_score and match_string == highest_ai_score_match_string and part.get('ai_reasoning'):
+                # This match has the highest AI score, so show the reasoning here
                 reasoning = part.get('ai_reasoning', '')
                 ai_reasoning_item.setText(reasoning)
                 ai_reasoning_item.setToolTip(reasoning)
@@ -2111,8 +2125,12 @@ class SupplyFrameReviewPage(QWizardPage):
             # Remove all buttons from the old group
             for button in self.matches_table.button_group.buttons():
                 self.matches_table.button_group.removeButton(button)
-            # Delete the old button group
-            self.matches_table.button_group.deleteLater()
+            # Set parent to None and delete immediately
+            old_group = self.matches_table.button_group
+            old_group.setParent(None)
+            self.matches_table.button_group = None
+            # Force immediate deletion by calling destructor
+            del old_group
 
         # Create a new button group to ensure only one radio button can be selected at a time
         button_group = QButtonGroup(self.matches_table)  # Set parent to matches_table
@@ -2122,6 +2140,16 @@ class SupplyFrameReviewPage(QWizardPage):
 
         from difflib import SequenceMatcher
         original_pn = part['PartNumber'].upper().strip()
+
+        # Find the match with the highest AI score (if any)
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_processed') and part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
 
         for match_idx, match in enumerate(part['matches']):
             # Extract match information using helper function
@@ -2200,10 +2228,10 @@ class SupplyFrameReviewPage(QWizardPage):
                     has_ai_score = True
             self.matches_table.setItem(match_idx, 7, ai_score_item)
 
-            # Column 8: AI Reasoning - show on the row with AI score
+            # Column 8: AI Reasoning - only show on the row with the HIGHEST AI score
             ai_reasoning_item = QTableWidgetItem("")
-            if has_ai_score and part.get('ai_reasoning'):
-                # This match has the AI score, so show the reasoning here
+            if has_ai_score and match_string == highest_ai_score_match_string and part.get('ai_reasoning'):
+                # This match has the highest AI score, so show the reasoning here
                 reasoning = part.get('ai_reasoning', '')
                 ai_reasoning_item.setText(reasoning)
                 ai_reasoning_item.setToolTip(reasoning)

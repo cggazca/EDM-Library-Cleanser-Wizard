@@ -695,7 +695,9 @@ class SupplyFrameReviewPage(QWizardPage):
             self.need_review_table = parts_table
         elif category == "None":
             self.none_table = parts_table
-            # Enable context menu for None table to allow reverting changes
+            # Enable multi-row selection for None table for bulk operations
+            parts_table.setSelectionMode(QTableWidget.ExtendedSelection)
+            # Enable context menu for None table to allow reverting changes and bulk operations
             parts_table.setContextMenuPolicy(Qt.CustomContextMenu)
             parts_table.customContextMenuRequested.connect(self.show_none_table_context_menu)
             # Enable immediate change detection when cells are edited
@@ -1355,66 +1357,81 @@ class SupplyFrameReviewPage(QWizardPage):
         QMessageBox.critical(self, "Bulk Re-search Error", f"Bulk re-search failed:\n{error_msg}")
 
     def show_none_table_context_menu(self, position):
-        """Show context menu for None table cells to allow reverting changes"""
-        # Get the item at the clicked position
-        item = self.none_table.itemAt(position)
-        if not item:
-            return
+        """Show context menu for None table cells to allow reverting changes and bulk operations"""
+        # Get selected rows
+        selected_rows = sorted(set(index.row() for index in self.none_table.selectedIndexes()))
 
-        row = item.row()
-        col = item.column()
-
-        # Only show menu for MFG PN (col 0) and MFG (col 1) columns
-        if col not in [0, 1]:
-            return
-
-        # Get the part data
-        if row >= len(self.none_parts):
-            return
-
-        part = self.none_parts[row]
-
-        # Check if original values exist
-        has_original_pn = 'original_pn' in part
-        has_original_mfg = 'original_mfg' in part
-
-        if not has_original_pn and not has_original_mfg:
+        if not selected_rows:
             return
 
         # Create context menu
         menu = QMenu(self)
 
-        # Add revert actions based on which column was clicked
-        if col == 0 and has_original_pn:  # MFG PN column
-            current_pn = part.get('PartNumber', '')
-            original_pn = part['original_pn']
+        # Single vs multiple selection
+        is_single_selection = len(selected_rows) == 1
 
-            # Only show revert option if value has changed
-            if current_pn != original_pn:
-                revert_pn_action = menu.addAction(f"⟲ Revert MFG PN to Original")
-                revert_pn_action.setToolTip(f"Change '{current_pn}' back to '{original_pn}'")
-            else:
-                # Show info that it's already at original value
-                info_action = menu.addAction("✓ Already at original value")
-                info_action.setEnabled(False)
+        if is_single_selection:
+            # Single row context menu (original functionality)
+            row = selected_rows[0]
 
-        elif col == 1 and has_original_mfg:  # MFG column
-            current_mfg = part.get('ManufacturerName', '')
-            original_mfg = part['original_mfg']
+            # Get the clicked column
+            item = self.none_table.itemAt(position)
+            col = item.column() if item else 0
 
-            # Only show revert option if value has changed
-            if current_mfg != original_mfg:
-                revert_mfg_action = menu.addAction(f"⟲ Revert MFG to Original")
-                revert_mfg_action.setToolTip(f"Change '{current_mfg}' back to '{original_mfg}'")
-            else:
-                # Show info that it's already at original value
-                info_action = menu.addAction("✓ Already at original value")
-                info_action.setEnabled(False)
+            # Get the part data
+            if row >= len(self.none_parts):
+                return
 
-        # Add separator and preview option
-        if menu.actions():
+            part = self.none_parts[row]
+
+            # Check if original values exist
+            has_original_pn = 'original_pn' in part
+            has_original_mfg = 'original_mfg' in part
+
+            # Add revert actions based on which column was clicked
+            if col == 0 and has_original_pn:  # MFG PN column
+                current_pn = part.get('PartNumber', '')
+                original_pn = part['original_pn']
+
+                # Only show revert option if value has changed
+                if current_pn != original_pn:
+                    revert_pn_action = menu.addAction(f"⟲ Revert MFG PN to Original")
+                    revert_pn_action.setToolTip(f"Change '{current_pn}' back to '{original_pn}'")
+                else:
+                    # Show info that it's already at original value
+                    info_action = menu.addAction("✓ Already at original value")
+                    info_action.setEnabled(False)
+
+            elif col == 1 and has_original_mfg:  # MFG column
+                current_mfg = part.get('ManufacturerName', '')
+                original_mfg = part['original_mfg']
+
+                # Only show revert option if value has changed
+                if current_mfg != original_mfg:
+                    revert_mfg_action = menu.addAction(f"⟲ Revert MFG to Original")
+                    revert_mfg_action.setToolTip(f"Change '{current_mfg}' back to '{original_mfg}'")
+                else:
+                    # Show info that it's already at original value
+                    info_action = menu.addAction("✓ Already at original value")
+                    info_action.setEnabled(False)
+
+            # Add separator and preview option
+            if menu.actions():
+                menu.addSeparator()
+                preview_action = menu.addAction("👁 Show Original Values")
+
+        else:
+            # Multiple rows selected - show bulk operations
+            menu.addAction(f"📋 {len(selected_rows)} rows selected")
             menu.addSeparator()
-            preview_action = menu.addAction("👁 Show Original Values")
+
+            # Bulk clear MFG
+            clear_mfg_action = menu.addAction("🗑 Clear MFG for Selected Rows")
+            clear_mfg_action.setToolTip(f"Clear the Manufacturer field for {len(selected_rows)} selected rows")
+
+            # Bulk restore original values
+            restore_action = menu.addAction("⟲ Restore Original Values for Selected Rows")
+            restore_action.setToolTip(f"Restore both MFG PN and MFG to original values for {len(selected_rows)} selected rows")
 
         # Execute menu and handle selection
         selected_action = menu.exec_(self.none_table.viewport().mapToGlobal(position))
@@ -1422,13 +1439,24 @@ class SupplyFrameReviewPage(QWizardPage):
         if not selected_action:
             return
 
-        # Handle revert actions
-        if selected_action.text().startswith("⟲ Revert MFG PN"):
-            self.revert_none_field(row, 'pn')
-        elif selected_action.text().startswith("⟲ Revert MFG"):
-            self.revert_none_field(row, 'mfg')
-        elif selected_action.text().startswith("👁 Show Original"):
-            self.show_original_values_preview(row)
+        # Handle actions
+        action_text = selected_action.text()
+
+        if is_single_selection:
+            # Handle single row actions
+            row = selected_rows[0]
+            if action_text.startswith("⟲ Revert MFG PN"):
+                self.revert_none_field(row, 'pn')
+            elif action_text.startswith("⟲ Revert MFG"):
+                self.revert_none_field(row, 'mfg')
+            elif action_text.startswith("👁 Show Original"):
+                self.show_original_values_preview(row)
+        else:
+            # Handle bulk actions
+            if action_text.startswith("🗑 Clear MFG"):
+                self.bulk_clear_mfg(selected_rows)
+            elif action_text.startswith("⟲ Restore Original"):
+                self.bulk_restore_original_values(selected_rows)
 
     def revert_none_field(self, row_idx, field_type):
         """Revert a specific field (MFG PN or MFG) back to its original value"""
@@ -1507,6 +1535,122 @@ class SupplyFrameReviewPage(QWizardPage):
         message += "</table>"
 
         QMessageBox.information(self, "Original Values Preview", message)
+
+    def bulk_clear_mfg(self, row_indices):
+        """Clear the MFG field for multiple selected rows"""
+        if not row_indices:
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Clear MFG Fields",
+            f"Are you sure you want to clear the Manufacturer field for {len(row_indices)} selected rows?\n\n"
+            f"This will set the MFG to empty for all selected parts.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Temporarily disable itemChanged signal to avoid triggering on each change
+        self.none_table.itemChanged.disconnect(self.on_none_table_item_changed)
+
+        cleared_count = 0
+        try:
+            for row_idx in row_indices:
+                if row_idx >= len(self.none_parts):
+                    continue
+
+                part = self.none_parts[row_idx]
+
+                # Store original values if not already stored
+                if 'original_pn' not in part:
+                    part['original_pn'] = part.get('PartNumber', '')
+                if 'original_mfg' not in part:
+                    part['original_mfg'] = part.get('ManufacturerName', '')
+
+                # Clear the MFG
+                part['ManufacturerName'] = ''
+
+                # Update table cell
+                mfg_item = self.none_table.item(row_idx, 1)
+                if mfg_item:
+                    mfg_item.setText('')
+                    cleared_count += 1
+
+        finally:
+            # Re-enable itemChanged signal
+            self.none_table.itemChanged.connect(self.on_none_table_item_changed)
+
+        QMessageBox.information(
+            self,
+            "MFG Cleared",
+            f"Successfully cleared MFG field for {cleared_count} rows.\n\n"
+            f"You can restore the original values using 'Restore Original Values' from the right-click menu."
+        )
+
+    def bulk_restore_original_values(self, row_indices):
+        """Restore original MFG PN and MFG values for multiple selected rows"""
+        if not row_indices:
+            return
+
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Restore Original Values",
+            f"Are you sure you want to restore original values for {len(row_indices)} selected rows?\n\n"
+            f"This will restore both MFG PN and Manufacturer to their original values.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Temporarily disable itemChanged signal to avoid triggering on each change
+        self.none_table.itemChanged.disconnect(self.on_none_table_item_changed)
+
+        restored_count = 0
+        try:
+            for row_idx in row_indices:
+                if row_idx >= len(self.none_parts):
+                    continue
+
+                part = self.none_parts[row_idx]
+
+                # Restore MFG PN if original exists
+                if 'original_pn' in part:
+                    original_pn = part['original_pn']
+                    part['PartNumber'] = original_pn
+
+                    # Update table cell
+                    pn_item = self.none_table.item(row_idx, 0)
+                    if pn_item:
+                        pn_item.setText(original_pn)
+
+                # Restore MFG if original exists
+                if 'original_mfg' in part:
+                    original_mfg = part['original_mfg']
+                    part['ManufacturerName'] = original_mfg
+
+                    # Update table cell
+                    mfg_item = self.none_table.item(row_idx, 1)
+                    if mfg_item:
+                        mfg_item.setText(original_mfg)
+
+                restored_count += 1
+
+        finally:
+            # Re-enable itemChanged signal
+            self.none_table.itemChanged.connect(self.on_none_table_item_changed)
+
+        QMessageBox.information(
+            self,
+            "Values Restored",
+            f"Successfully restored original values for {restored_count} rows."
+        )
 
     def on_none_table_item_changed(self, item):
         """Handle immediate change detection when cells are edited in the None table"""

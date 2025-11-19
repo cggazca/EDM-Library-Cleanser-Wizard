@@ -6,14 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 EDM (Engineering Data Management) library processing toolkit for Xpedition/PADS layout data. Converts between Microsoft Access databases (.mdb/.accdb), SQLite databases (.db/.sqlite/.sqlite3), Excel spreadsheets, and XML formats compatible with xml-console for EDM Library Creator (v1.7.000.0130).
 
-**Primary tool**: `edm_wizard.py` - PyQt5-based wizard with AI-powered column mapping and PAS API integration for part search and normalization.
+**Primary tool**: `edm_wizard_refactored.py` - PyQt5-based wizard with AI-powered column mapping and PAS API integration for part search and normalization.
 
 ## Core Architecture
 
 The codebase provides both individual command-line tools and an integrated wizard application:
 
-### **RECOMMENDED: EDM Wizard (`edm_wizard.py`)**
-**All-in-one GUI wizard** that combines all processing steps with an easy-to-use PyQt5 interface.
+### **RECOMMENDED: EDM Wizard (`edm_wizard_refactored.py`)**
+**All-in-one GUI wizard** that combines all processing steps with an easy-to-use PyQt5 interface using a modular architecture.
 
 **Architecture**: The wizard uses PyQt5's `QWizard` framework with 6 distinct pages:
 1. **StartPage** - Claude AI and PAS API configuration + output folder selection
@@ -117,8 +117,10 @@ pip install pandas sqlalchemy xlsxwriter pyodbc
 
 ### Run EDM Wizard (Recommended)
 ```bash
-python edm_wizard.py
+python edm_wizard_refactored.py
 ```
+
+**Note**: The refactored version uses a modular architecture with separate page modules. The old monolithic `edm_wizard.py` file (351KB) is deprecated and should not be used.
 
 ### Build Standalone Executable
 ```bash
@@ -127,7 +129,7 @@ build_exe.bat
 
 # Manual build
 pip install pyinstaller
-pyinstaller --onefile --windowed --name "EDM_Library_Wizard" edm_wizard.py
+pyinstaller --onefile --windowed --name "EDM_Library_Wizard" edm_wizard_refactored.py
 
 # Output: dist\EDM_Library_Wizard.exe
 ```

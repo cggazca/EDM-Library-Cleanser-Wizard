@@ -777,21 +777,23 @@ class SupplyFrameReviewPage(QWizardPage):
             right_layout.addWidget(QLabel("Available Matches:"))
 
             matches_table = QTableWidget()
-            matches_table.setColumnCount(7)  # Increased from 5 to 7
-            matches_table.setHorizontalHeaderLabels(["Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score"])
+            matches_table.setColumnCount(9)  # Increased from 7 to 9 (added Option # and AI Reasoning)
+            matches_table.setHorizontalHeaderLabels(["Option", "Select", "Part Number", "Manufacturer", "Lifecycle Status", "External ID", "Similarity", "AI Score", "AI Reasoning"])
             matches_table.setSortingEnabled(True)  # Enable sorting
             matches_table.setContextMenuPolicy(Qt.CustomContextMenu)
             matches_table.customContextMenuRequested.connect(self.show_match_context_menu)
 
             # Set column resize modes
             header = matches_table.horizontalHeader()
-            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Select
-            header.setSectionResizeMode(1, QHeaderView.Stretch)  # Part Number
-            header.setSectionResizeMode(2, QHeaderView.Stretch)  # Manufacturer
-            header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Lifecycle Status
-            header.setSectionResizeMode(4, QHeaderView.Stretch)  # External ID
-            header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Similarity
-            header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # AI Score
+            header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Option
+            header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Select
+            header.setSectionResizeMode(2, QHeaderView.Stretch)  # Part Number
+            header.setSectionResizeMode(3, QHeaderView.Stretch)  # Manufacturer
+            header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Lifecycle Status
+            header.setSectionResizeMode(5, QHeaderView.Stretch)  # External ID
+            header.setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Similarity
+            header.setSectionResizeMode(7, QHeaderView.ResizeToContents)  # AI Score
+            header.setSectionResizeMode(8, QHeaderView.Stretch)  # AI Reasoning
             
             right_layout.addWidget(matches_table)
             
@@ -1966,8 +1968,17 @@ class SupplyFrameReviewPage(QWizardPage):
         matches = part.get('matches', [])
         matches_table.setRowCount(len(matches))
 
-        # Create a button group to ensure only one radio button can be selected at a time
-        button_group = QButtonGroup()
+        # Clean up old button group if it exists
+        if hasattr(matches_table, 'button_group') and matches_table.button_group is not None:
+            # Remove all buttons from the old group
+            for button in matches_table.button_group.buttons():
+                matches_table.button_group.removeButton(button)
+            # Delete the old button group
+            matches_table.button_group.deleteLater()
+
+        # Create a new button group to ensure only one radio button can be selected at a time
+        button_group = QButtonGroup(matches_table)  # Set parent to matches_table
+        button_group.setExclusive(True)  # Explicitly set exclusive mode
         # Store the button group to prevent garbage collection
         matches_table.button_group = button_group
 
@@ -1979,7 +1990,13 @@ class SupplyFrameReviewPage(QWizardPage):
             # Extract match information using helper function
             mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
 
-            # Radio button for selection - centered in cell
+            # Column 0: Option number (1-based for readability, matching AI prompt)
+            option_item = QTableWidgetItem(str(match_idx + 1))
+            option_item.setTextAlignment(Qt.AlignCenter)
+            option_item.setToolTip(f"Option {match_idx + 1} (as referenced by AI)")
+            matches_table.setItem(match_idx, 0, option_item)
+
+            # Column 1: Radio button for selection - centered in cell
             radio = QRadioButton()
             # Check against match_string for compatibility
             selected = part.get('selected_match')
@@ -2000,16 +2017,20 @@ class SupplyFrameReviewPage(QWizardPage):
             radio_layout.setAlignment(Qt.AlignCenter)
             radio_layout.setContentsMargins(0, 0, 0, 0)
 
-            matches_table.setCellWidget(match_idx, 0, radio_widget)
-            matches_table.setItem(match_idx, 1, QTableWidgetItem(mpn))
-            matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
-            
-            # Lifecycle Status column
+            matches_table.setCellWidget(match_idx, 1, radio_widget)
+
+            # Column 2: Part Number
+            matches_table.setItem(match_idx, 2, QTableWidgetItem(mpn))
+
+            # Column 3: Manufacturer
+            matches_table.setItem(match_idx, 3, QTableWidgetItem(mfg))
+
+            # Column 4: Lifecycle Status
             lifecycle_item = QTableWidgetItem(lifecycle_status or '')
             lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
-            matches_table.setItem(match_idx, 3, lifecycle_item)
-            
-            # External ID column (link)
+            matches_table.setItem(match_idx, 4, lifecycle_item)
+
+            # Column 5: External ID (link)
             external_item = QTableWidgetItem('')
             if external_id:
                 # Truncate long URLs for display
@@ -2017,20 +2038,21 @@ class SupplyFrameReviewPage(QWizardPage):
                 external_item.setText(display_url)
                 external_item.setToolTip(f"Click to open: {external_id}")
                 external_item.setForeground(QColor(0, 0, 255))  # Blue for links
-            matches_table.setItem(match_idx, 4, external_item)
+            matches_table.setItem(match_idx, 5, external_item)
 
-            # Calculate similarity score
+            # Column 6: Similarity score
             match_pn = mpn.upper().strip()
             similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
             similarity_item.setToolTip("String similarity using difflib (part number matching)")
-            matches_table.setItem(match_idx, 5, similarity_item)
+            matches_table.setItem(match_idx, 6, similarity_item)
 
-            # AI Score - only show if AI has processed this part
+            # Column 7: AI Score - only show if AI has processed this part
             ai_score_item = QTableWidgetItem("")
             ai_score_item.setTextAlignment(Qt.AlignCenter)
+            has_ai_score = False
             if part.get('ai_processed') and part.get('ai_match_scores'):
                 # Get AI confidence for this specific match
                 ai_scores = part.get('ai_match_scores', {})
@@ -2040,7 +2062,17 @@ class SupplyFrameReviewPage(QWizardPage):
                     ai_conf = ai_scores[score_key]
                     ai_score_item.setText(f"{ai_conf}%")
                     ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
-            matches_table.setItem(match_idx, 6, ai_score_item)
+                    has_ai_score = True
+            matches_table.setItem(match_idx, 7, ai_score_item)
+
+            # Column 8: AI Reasoning - show on the row with AI score
+            ai_reasoning_item = QTableWidgetItem("")
+            if has_ai_score and part.get('ai_reasoning'):
+                # This match has the AI score, so show the reasoning here
+                reasoning = part.get('ai_reasoning', '')
+                ai_reasoning_item.setText(reasoning)
+                ai_reasoning_item.setToolTip(reasoning)
+            matches_table.setItem(match_idx, 8, ai_reasoning_item)
 
     def on_match_selected(self, part, match, checked):
         """Handle match selection"""
@@ -2070,8 +2102,17 @@ class SupplyFrameReviewPage(QWizardPage):
         # Re-populate matches table
         self.matches_table.setRowCount(len(part['matches']))
 
-        # Create a button group to ensure only one radio button can be selected at a time
-        button_group = QButtonGroup()
+        # Clean up old button group if it exists
+        if hasattr(self.matches_table, 'button_group') and self.matches_table.button_group is not None:
+            # Remove all buttons from the old group
+            for button in self.matches_table.button_group.buttons():
+                self.matches_table.button_group.removeButton(button)
+            # Delete the old button group
+            self.matches_table.button_group.deleteLater()
+
+        # Create a new button group to ensure only one radio button can be selected at a time
+        button_group = QButtonGroup(self.matches_table)  # Set parent to matches_table
+        button_group.setExclusive(True)  # Explicitly set exclusive mode
         # Store the button group to prevent garbage collection
         self.matches_table.button_group = button_group
 
@@ -2082,7 +2123,13 @@ class SupplyFrameReviewPage(QWizardPage):
             # Extract match information using helper function
             mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
 
-            # Radio button
+            # Column 0: Option number (1-based for readability, matching AI prompt)
+            option_item = QTableWidgetItem(str(match_idx + 1))
+            option_item.setTextAlignment(Qt.AlignCenter)
+            option_item.setToolTip(f"Option {match_idx + 1} (as referenced by AI)")
+            self.matches_table.setItem(match_idx, 0, option_item)
+
+            # Column 1: Radio button for selection - centered in cell
             radio = QRadioButton()
             # Check against match_string for compatibility
             selected = part.get('selected_match')
@@ -2102,16 +2149,20 @@ class SupplyFrameReviewPage(QWizardPage):
             radio_layout.setAlignment(Qt.AlignCenter)
             radio_layout.setContentsMargins(0, 0, 0, 0)
 
-            self.matches_table.setCellWidget(match_idx, 0, radio_widget)
-            self.matches_table.setItem(match_idx, 1, QTableWidgetItem(mpn))
-            self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mfg))
-            
-            # Lifecycle Status column
+            self.matches_table.setCellWidget(match_idx, 1, radio_widget)
+
+            # Column 2: Part Number
+            self.matches_table.setItem(match_idx, 2, QTableWidgetItem(mpn))
+
+            # Column 3: Manufacturer
+            self.matches_table.setItem(match_idx, 3, QTableWidgetItem(mfg))
+
+            # Column 4: Lifecycle Status
             lifecycle_item = QTableWidgetItem(lifecycle_status or '')
             lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
-            self.matches_table.setItem(match_idx, 3, lifecycle_item)
-            
-            # External ID column (link)
+            self.matches_table.setItem(match_idx, 4, lifecycle_item)
+
+            # Column 5: External ID (link)
             external_item = QTableWidgetItem('')
             if external_id:
                 # Truncate long URLs for display
@@ -2119,20 +2170,21 @@ class SupplyFrameReviewPage(QWizardPage):
                 external_item.setText(display_url)
                 external_item.setToolTip(f"Click to open: {external_id}")
                 external_item.setForeground(QColor(0, 0, 255))  # Blue for links
-            self.matches_table.setItem(match_idx, 4, external_item)
+            self.matches_table.setItem(match_idx, 5, external_item)
 
-            # Similarity score
+            # Column 6: Similarity score
             match_pn = mpn.upper().strip()
             similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
             similarity_item.setToolTip("String similarity using difflib (part number matching)")
-            self.matches_table.setItem(match_idx, 5, similarity_item)
+            self.matches_table.setItem(match_idx, 6, similarity_item)
 
-            # AI Score - show if available
+            # Column 7: AI Score - show if available
             ai_score_item = QTableWidgetItem("")
             ai_score_item.setTextAlignment(Qt.AlignCenter)
+            has_ai_score = False
             if part.get('ai_processed') and part.get('ai_match_scores'):
                 ai_scores = part.get('ai_match_scores', {})
                 # Check both match and match_string
@@ -2141,7 +2193,17 @@ class SupplyFrameReviewPage(QWizardPage):
                     ai_conf = ai_scores[score_key]
                     ai_score_item.setText(f"{ai_conf}%")
                     ai_score_item.setToolTip("AI confidence score (considers context, manufacturer, description)")
-            self.matches_table.setItem(match_idx, 6, ai_score_item)
+                    has_ai_score = True
+            self.matches_table.setItem(match_idx, 7, ai_score_item)
+
+            # Column 8: AI Reasoning - show on the row with AI score
+            ai_reasoning_item = QTableWidgetItem("")
+            if has_ai_score and part.get('ai_reasoning'):
+                # This match has the AI score, so show the reasoning here
+                reasoning = part.get('ai_reasoning', '')
+                ai_reasoning_item.setText(reasoning)
+                ai_reasoning_item.setToolTip(reasoning)
+            self.matches_table.setItem(match_idx, 8, ai_reasoning_item)
 
     def show_match_context_menu(self, position):
         """Show context menu for matches table"""

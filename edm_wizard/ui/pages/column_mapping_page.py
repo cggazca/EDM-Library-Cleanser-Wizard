@@ -50,10 +50,10 @@ class ColumnMappingPage(QWizardPage):
             QSplitter::handle {
                 background-color: #d0d0d0;
                 border: 1px solid #a0a0a0;
-                width: 8px;
+                width: 4px;
             }
             QSplitter::handle:horizontal {
-                width: 8px;
+                width: 4px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
                 border-left: 1px solid #a0a0a0;

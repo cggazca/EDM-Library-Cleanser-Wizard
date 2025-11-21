@@ -34,6 +34,15 @@ build_exe.bat
 dist\EDM_Library_Wizard.exe
 ```
 
+### Option 3: Run headless for automation/tests
+```bash
+# Add pytest for automation helpers
+pip install -r requirements_test.txt
+python -m edm_wizard.utils.headless_flow --config path\to\headless_config.json
+pytest tests/test_headless_flow.py
+```
+Config JSON keys: `input_path` (Access `.mdb/.accdb` or Excel), `output_dir`, `mappings` per sheet (`MFG`, `MFG_PN`, `MFG_PN_2`, `Part_Number`, `Description`) plus optional `include_sheets`, `filters`, and `fill_tbd`. See `tests/test_headless_flow.py` for a working example.
+
 ## Using the Wizard
 
 ### Step 1: Choose Your Data Source

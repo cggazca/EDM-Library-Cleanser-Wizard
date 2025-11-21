@@ -16,7 +16,7 @@ try:
         QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
         QComboBox, QMessageBox, QWidget, QTabWidget, QScrollArea, QSpinBox,
         QInputDialog, QMenu, QTextEdit, QDialog, QDialogButtonBox, QSplitter,
-        QButtonGroup
+        QButtonGroup, QProgressBar, QRadioButton
     )
     from PyQt5.QtCore import Qt, QThread, pyqtSignal
     from PyQt5.QtGui import QColor, QFont
@@ -77,10 +77,10 @@ class SupplyFrameReviewPage(QWizardPage):
             QSplitter::handle {
                 background-color: #d0d0d0;
                 border: 1px solid #a0a0a0;
-                height: 8px;
+                height: 5px;
             }
             QSplitter::handle:vertical {
-                height: 8px;
+                height: 5px;
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
                 border-top: 1px solid #a0a0a0;
@@ -145,6 +145,11 @@ class SupplyFrameReviewPage(QWizardPage):
         else:
             # Invalid format
             return ('', '', '', '', '', '', '')
+
+    @staticmethod
+    def _normalize_mfg_key(name):
+        """Normalize manufacturer name for case-insensitive, trimmed comparisons."""
+        return str(name or '').strip().upper()
 
     def initializePage(self):
         """Initialize by loading data from CSV file created by PASSearchPage"""
@@ -234,22 +239,33 @@ class SupplyFrameReviewPage(QWizardPage):
                     grouped[key]['MatchStatus'] = row['MatchStatus']
 
                 # Add match value if present (as dict with lifecycle and external ID)
+                # Collect all match values: the main column plus any extra match columns (captured under None)
                 match_value = row.get('MatchValue(PartNumber@ManufacturerName)', '').strip()
+                match_values = []
                 if match_value:
+                    match_values.append(match_value)
+
+                extra_matches = row.get(None, []) or []
+                for extra in extra_matches:
+                    extra = extra.strip()
+                    if extra:
+                        match_values.append(extra)
+
+                for mv in match_values:
                     # Create match dict with all available fields
                     match_dict = {
-                        'match_string': match_value,
+                        'match_string': mv,
                         'lifecycle_status': row.get('Lifecycle_Status', ''),
                         'lifecycle_code': row.get('Lifecycle_Code', ''),
                         'external_id': row.get('External_ID', '')
                     }
                     # Parse mpn and mfg from match string
-                    if '@' in match_value:
-                        mpn, mfg = match_value.split('@', 1)
+                    if '@' in mv:
+                        mpn, mfg = mv.split('@', 1)
                         match_dict['mpn'] = mpn
                         match_dict['mfg'] = mfg
                     else:
-                        match_dict['mpn'] = match_value
+                        match_dict['mpn'] = mv
                         match_dict['mfg'] = ''
                     
                     grouped[key]['matches'].append(match_dict)
@@ -661,10 +677,10 @@ class SupplyFrameReviewPage(QWizardPage):
             QSplitter::handle {
                 background-color: #d0d0d0;
                 border: 1px solid #a0a0a0;
-                width: 8px;
+                width: 4px;
             }
             QSplitter::handle:horizontal {
-                width: 8px;
+                width: 4px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
                 border-left: 1px solid #a0a0a0;
@@ -2063,10 +2079,10 @@ class SupplyFrameReviewPage(QWizardPage):
             QSplitter::handle {
                 background-color: #d0d0d0;
                 border: 1px solid #a0a0a0;
-                width: 8px;
+                width: 4px;
             }
             QSplitter::handle:horizontal {
-                width: 8px;
+                width: 4px;
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
                     stop:0 #e0e0e0, stop:0.5 #c0c0c0, stop:1 #e0e0e0);
                 border-left: 1px solid #a0a0a0;
@@ -2130,6 +2146,21 @@ class SupplyFrameReviewPage(QWizardPage):
         
         norm_layout.addWidget(self.norm_table)
 
+        # Bulk include toggles
+        bulk_norm_layout = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.setToolTip("Check all normalization rows for inclusion")
+        select_all_btn.clicked.connect(lambda: self.set_all_normalization_includes(True))
+        bulk_norm_layout.addWidget(select_all_btn)
+
+        unselect_all_btn = QPushButton("Unselect All")
+        unselect_all_btn.setToolTip("Uncheck all normalization rows")
+        unselect_all_btn.clicked.connect(lambda: self.set_all_normalization_includes(False))
+        bulk_norm_layout.addWidget(unselect_all_btn)
+
+        bulk_norm_layout.addStretch()
+        norm_layout.addLayout(bulk_norm_layout)
+
         # Help text with color legend
         help_label = QLabel(
             "<b>Instructions:</b> Review each manufacturer. "
@@ -2160,6 +2191,16 @@ class SupplyFrameReviewPage(QWizardPage):
 
         norm_group.setLayout(norm_layout)
         return norm_group
+
+    def set_all_normalization_includes(self, checked):
+        """Toggle all normalization include checkboxes at once."""
+        for row_idx in range(self.norm_table.rowCount()):
+            include_widget = self.norm_table.cellWidget(row_idx, 0)
+            if not include_widget:
+                continue
+            include_checkbox = include_widget.findChild(QCheckBox)
+            if include_checkbox:
+                include_checkbox.setChecked(checked)
 
     def create_comparison_section_widget(self):
         """Section 4: Comparison View"""
@@ -3134,20 +3175,61 @@ class SupplyFrameReviewPage(QWizardPage):
                 match_key = suggested_match.get('match_string', '') if isinstance(suggested_match, dict) else str(suggested_match)
                 part['ai_match_scores'][match_key] = confidence
 
-        # Refresh the appropriate tables
+        # Instead of refreshing the entire table, just update the specific row
+        # This prevents the UI from jumping around and losing context
+        table_to_update = None
+        parts_list_to_use = None
+        part_index = -1
+        
         if part in self.multiple_parts:
-            self.populate_category_table(self.multiple_table, self.multiple_parts, show_actions=True)
+            table_to_update = self.multiple_table
+            parts_list_to_use = self.multiple_parts
+            part_index = self.multiple_parts.index(part)
         elif part in self.need_review_parts:
-            self.populate_category_table(self.need_review_table, self.need_review_parts, show_actions=True)
+            table_to_update = self.need_review_table
+            parts_list_to_use = self.need_review_parts
+            part_index = self.need_review_parts.index(part)
+        
+        # Update only the specific row indicators (AI status and reviewed status)
+        if table_to_update and part_index >= 0 and part_index < table_to_update.rowCount():
+            # Update Reviewed indicator (column 3)
+            reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
+            reviewed_item.setTextAlignment(Qt.AlignCenter)
+            table_to_update.setItem(part_index, 3, reviewed_item)
+            
+            # Update AI indicator (column 4)
+            ai_status = ""
+            if part.get('ai_processed'):
+                ai_status = "🤖"
+            elif part.get('ai_processing'):
+                ai_status = "⏳"
+            ai_item = QTableWidgetItem(ai_status)
+            ai_item.setTextAlignment(Qt.AlignCenter)
+            table_to_update.setItem(part_index, 4, ai_item)
+            
+            # Update/Remove Action button (column 5) - remove if already processed
+            if part.get('ai_processed'):
+                table_to_update.setCellWidget(part_index, 5, None)
 
         # If this part is currently selected, refresh the matches display to show AI scores
-        selected_rows = self.parts_list.selectedIndexes()
-        if selected_rows:
-            row_idx = selected_rows[0].row()
-            if row_idx < len(self.parts_needing_review):
-                selected_part = self.parts_needing_review[row_idx]
-                if selected_part is part:
-                    self.refresh_matches_display()
+        # Check both multiple and need review tables for selection
+        refresh_needed = False
+        if hasattr(self, 'multiple_table') and self.multiple_table.selectedIndexes():
+            selected_rows = self.multiple_table.selectedIndexes()
+            if selected_rows:
+                row_idx_selected = selected_rows[0].row()
+                if row_idx_selected < len(self.multiple_parts) and self.multiple_parts[row_idx_selected] is part:
+                    refresh_needed = True
+        elif hasattr(self, 'need_review_table') and self.need_review_table.selectedIndexes():
+            selected_rows = self.need_review_table.selectedIndexes()
+            if selected_rows:
+                row_idx_selected = selected_rows[0].row()
+                if row_idx_selected < len(self.need_review_parts) and self.need_review_parts[row_idx_selected] is part:
+                    refresh_needed = True
+        
+        if refresh_needed:
+            # Call on_part_selected to refresh the matches display
+            self.on_part_selected()
 
     def on_ai_match_finished(self, suggestions):
         """Apply AI suggestions"""
@@ -4253,11 +4335,11 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                         original_item = self.norm_table.item(row_idx, 2)
                         if original_item:
                             original_mfg = original_item.text()
-                            # Count parts in none_parts that match this manufacturer
+                            original_key = self._normalize_mfg_key(original_mfg)
+                            # Count parts in none_parts that match this manufacturer (case-insensitive, trimmed)
                             for part in self.none_parts:
-                                if part.get('ManufacturerName', '') == original_mfg:
+                                if self._normalize_mfg_key(part.get('ManufacturerName', '')) == original_key:
                                     none_affected += 1
-                                    break  # Count this normalization only once
 
                 if none_affected > 0:
                     reply = QMessageBox.question(self, "Apply to None Category?",
@@ -4281,10 +4363,13 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                         if original_item and normalize_combo:
                             original_mfg = original_item.text()
                             canonical_mfg = normalize_combo.currentText()
+                            original_key = self._normalize_mfg_key(original_mfg)
 
                             # Apply to none_parts
                             for part in self.none_parts:
-                                if part.get('ManufacturerName', '') == original_mfg:
+                                if self._normalize_mfg_key(part.get('ManufacturerName', '')) == original_key:
+                                    if 'original_mfg' not in part:
+                                        part['original_mfg'] = part.get('ManufacturerName', '')
                                     part['ManufacturerName'] = canonical_mfg
                                     none_normalizations_applied += 1
 

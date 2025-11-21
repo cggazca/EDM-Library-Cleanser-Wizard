@@ -1,0 +1,2 @@
+-r requirements_wizard.txt
+pytest>=8.0.0

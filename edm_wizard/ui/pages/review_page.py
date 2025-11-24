@@ -2657,6 +2657,201 @@ class SupplyFrameReviewPage(QWizardPage):
             if external_id:
                 # Truncate long URLs for display
                 display_url = external_id if len(external_id) <= 40 else external_id[:37] + '...'
+            # AI indicator
+            ai_status = ""
+            if part.get('ai_processed'):
+                ai_status = "🤖"
+            elif part.get('ai_processing'):
+                ai_status = "⏳"
+            ai_item = QTableWidgetItem(ai_status)
+            ai_item.setTextAlignment(Qt.AlignCenter)
+            self.parts_list.setItem(row_idx, 4, ai_item)
+
+            # Action button - AI Suggest (only if >1 match and not already processed)
+            if len(part['matches']) > 1 and not part.get('ai_processed'):
+                ai_btn = QPushButton("🤖 AI")
+                ai_btn.setToolTip("Use AI to suggest best match for this part")
+                ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
+                self.parts_list.setCellWidget(row_idx, 5, ai_btn)
+
+        print(f"DEBUG: Parts list populated with {self.parts_list.rowCount()} rows")
+
+    def update_part_row(self, row_idx):
+        """Update a single row in the parts list (for real-time AI updates)"""
+        if row_idx >= len(self.parts_needing_review):
+            return
+
+        part = self.parts_needing_review[row_idx]
+
+        # Update Reviewed indicator
+        reviewed_item = QTableWidgetItem("✓" if part.get('selected_match') else "")
+        reviewed_item.setTextAlignment(Qt.AlignCenter)
+        self.parts_list.setItem(row_idx, 3, reviewed_item)
+
+        # Update AI indicator
+        ai_status = ""
+        if part.get('ai_processed'):
+            ai_status = "🤖"
+        elif part.get('ai_processing'):
+            ai_status = "⏳"
+        ai_item = QTableWidgetItem(ai_status)
+        ai_item.setTextAlignment(Qt.AlignCenter)
+        self.parts_list.setItem(row_idx, 4, ai_item)
+
+        # Update/Remove Action button - remove if already processed
+        if part.get('ai_processed'):
+            # Remove the button if AI has processed this part
+            self.parts_list.setCellWidget(row_idx, 5, None)
+        elif len(part['matches']) > 1 and not part.get('ai_processing'):
+            # Re-add button if it's not processing and has multiple matches
+            ai_btn = QPushButton("🤖 AI")
+            ai_btn.setToolTip("Use AI to suggest best match for this part")
+            ai_btn.clicked.connect(lambda checked, idx=row_idx: self.ai_suggest_single(idx))
+            self.parts_list.setCellWidget(row_idx, 5, ai_btn)
+
+    def on_part_selected(self):
+        """Handle part selection - show matches"""
+        # Determine which table triggered the selection
+        sender = self.sender()
+
+        # Default to checking all tables
+        parts_list = None
+        matches_table = None
+        parts_data = None
+        selected_rows = None
+
+        # Check which table triggered the selection using sender()
+        # This ensures we use the correct table even if other tables have selections
+        if sender == self.multiple_table:
+            if self.multiple_table.selectedIndexes():
+                selected_rows = self.multiple_table.selectedIndexes()
+                parts_list = self.multiple_table
+                matches_table = self.multiple_matches_table
+                parts_data = self.multiple_parts
+        elif sender == self.need_review_table:
+            if self.need_review_table.selectedIndexes():
+                selected_rows = self.need_review_table.selectedIndexes()
+                parts_list = self.need_review_table
+                matches_table = self.need_review_matches_table
+                parts_data = self.need_review_parts
+        else:
+            # Fallback to checking all tables if sender is not recognized
+            # This handles cases where the method might be called manually
+            if hasattr(self, 'multiple_table') and self.multiple_table.selectedIndexes():
+                selected_rows = self.multiple_table.selectedIndexes()
+                parts_list = self.multiple_table
+                matches_table = self.multiple_matches_table
+                parts_data = self.multiple_parts
+            elif hasattr(self, 'need_review_table') and self.need_review_table.selectedIndexes():
+                selected_rows = self.need_review_table.selectedIndexes()
+                parts_list = self.need_review_table
+                matches_table = self.need_review_matches_table
+                parts_data = self.need_review_parts
+            else:
+                return
+
+        if not selected_rows or not parts_data:
+            return
+
+        row_idx = selected_rows[0].row()
+        if row_idx >= len(parts_data):
+            return
+            
+        part = parts_data[row_idx]
+        
+        # Ensure part is a dict and has required keys
+        if not isinstance(part, dict):
+            print(f"ERROR on_part_selected: part is not a dict: {type(part)} - {part}")
+            return
+        
+        if 'matches' not in part:
+            part['matches'] = []
+        
+        # Populate matches table
+        matches = part.get('matches', [])
+        matches_table.setRowCount(len(matches))
+
+        # Clean up old button group if it exists
+        if hasattr(matches_table, 'button_group') and matches_table.button_group is not None:
+            # Remove all buttons from the old group
+            for button in matches_table.button_group.buttons():
+                matches_table.button_group.removeButton(button)
+            # Set parent to None and delete immediately
+            old_group = matches_table.button_group
+            old_group.setParent(None)
+            matches_table.button_group = None
+            # Force immediate deletion by calling destructor
+            del old_group
+
+        # Create a new button group to ensure only one radio button can be selected at a time
+        button_group = QButtonGroup(matches_table)  # Set parent to matches_table
+        button_group.setExclusive(True)  # Explicitly set exclusive mode
+        # Store the button group to prevent garbage collection
+        matches_table.button_group = button_group
+
+        # Calculate similarity scores for confidence
+        from difflib import SequenceMatcher
+        original_pn = part.get('PartNumber', '').upper().strip()
+
+        # Find the match with the highest AI score (if any)
+        highest_ai_score_match_string = None
+        highest_ai_score = -1
+        if part.get('ai_processed') and part.get('ai_match_scores'):
+            ai_scores = part.get('ai_match_scores', {})
+            for match_string_key, score in ai_scores.items():
+                if score > highest_ai_score:
+                    highest_ai_score = score
+                    highest_ai_score_match_string = match_string_key
+
+        for match_idx, match in enumerate(matches):
+            # Extract match information using helper function
+            mpn, mfg, lifecycle_status, lifecycle_code, external_id, findchips_url, match_string = self._get_match_info(match)
+
+            # Column 0: Option number (1-based for readability, matching AI prompt)
+            option_item = QTableWidgetItem(str(match_idx + 1))
+            option_item.setTextAlignment(Qt.AlignCenter)
+            option_item.setToolTip(f"Option {match_idx + 1} (as referenced by AI)")
+            matches_table.setItem(match_idx, 0, option_item)
+
+            # Column 1: Radio button for selection - centered in cell
+            radio = QRadioButton()
+            # Check against match_string for compatibility
+            selected = part.get('selected_match')
+            if isinstance(selected, dict):
+                is_selected = (selected.get('match_string') == match_string)
+            else:
+                is_selected = (selected == match or selected == match_string)
+            radio.setChecked(is_selected)
+            radio.toggled.connect(lambda checked, p=part, m=match: self.on_match_selected(p, m, checked))
+
+            # Add radio button to the button group to ensure mutual exclusivity
+            button_group.addButton(radio)
+
+            # Create a widget to center the radio button
+            radio_widget = QWidget()
+            radio_layout = QHBoxLayout(radio_widget)
+            radio_layout.addWidget(radio)
+            radio_layout.setAlignment(Qt.AlignCenter)
+            radio_layout.setContentsMargins(0, 0, 0, 0)
+
+            matches_table.setCellWidget(match_idx, 1, radio_widget)
+
+            # Column 2: Part Number
+            matches_table.setItem(match_idx, 2, QTableWidgetItem(mpn))
+
+            # Column 3: Manufacturer
+            matches_table.setItem(match_idx, 3, QTableWidgetItem(mfg))
+
+            # Column 4: Lifecycle Status
+            lifecycle_item = QTableWidgetItem(lifecycle_status or '')
+            lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            matches_table.setItem(match_idx, 4, lifecycle_item)
+
+            # Column 5: External ID (link)
+            external_item = QTableWidgetItem('')
+            if external_id:
+                # Truncate long URLs for display
+                display_url = external_id if len(external_id) <= 40 else external_id[:37] + '...'
                 external_item.setText(display_url)
                 external_item.setToolTip(f"Click to open: {external_id}")
                 external_item.setForeground(QColor(0, 0, 255))  # Blue for links
@@ -2664,12 +2859,24 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Column 6: Similarity score
             match_pn = mpn.upper().strip()
-            similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+            match_mfg = mfg.upper().strip()
+            original_mfg = part.get('ManufacturerName', '').upper().strip()
+            
+            # Calculate PN similarity
+            pn_sim = SequenceMatcher(None, original_pn, match_pn).ratio()
+            
+            # Calculate MFG similarity
+            mfg_sim = SequenceMatcher(None, original_mfg, match_mfg).ratio()
+            
+            # Weighted average: 60% PN, 40% MFG
+            similarity = (pn_sim * 0.6) + (mfg_sim * 0.4)
+            
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
-            similarity_item.setToolTip("String similarity using difflib (part number matching)")
+            similarity_item.setToolTip(f"Combined similarity: {similarity_pct}%\n(PN: {int(pn_sim*100)}%, MFG: {int(mfg_sim*100)}%)")
             matches_table.setItem(match_idx, 6, similarity_item)
+
 
             # Column 7: AI Score - only show if AI has processed this part
             ai_score_item = QTableWidgetItem("")
@@ -2801,12 +3008,24 @@ class SupplyFrameReviewPage(QWizardPage):
 
             # Column 6: Similarity score
             match_pn = mpn.upper().strip()
-            similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+            match_mfg = mfg.upper().strip()
+            original_mfg = part.get('ManufacturerName', '').upper().strip()
+            
+            # Calculate PN similarity
+            pn_sim = SequenceMatcher(None, original_pn, match_pn).ratio()
+            
+            # Calculate MFG similarity
+            mfg_sim = SequenceMatcher(None, original_mfg, match_mfg).ratio()
+            
+            # Weighted average: 60% PN, 40% MFG
+            similarity = (pn_sim * 0.6) + (mfg_sim * 0.4)
+            
             similarity_pct = int(similarity * 100)
             similarity_item = QTableWidgetItem(f"{similarity_pct}%")
             similarity_item.setTextAlignment(Qt.AlignCenter)
-            similarity_item.setToolTip("String similarity using difflib (part number matching)")
+            similarity_item.setToolTip(f"Combined similarity: {similarity_pct}%\n(PN: {int(pn_sim*100)}%, MFG: {int(mfg_sim*100)}%)")
             self.matches_table.setItem(match_idx, 6, similarity_item)
+
 
             # Column 7: AI Score - show if available
             ai_score_item = QTableWidgetItem("")
@@ -4251,6 +4470,71 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                               f"• Settings will be applied when you click 'Apply Changes'\n\n"
                               f"You can continue editing the normalizations as needed.")
 
+        # Ask user if they want to apply normalizations to None category
+        apply_to_none = False
+        if hasattr(self, 'none_parts') and self.none_parts:
+            # Count how many parts in None category would be affected (excluding empty MFG)
+            none_affected = 0
+            for row_idx in range(self.norm_table.rowCount()):
+                include_widget = self.norm_table.cellWidget(row_idx, 0)
+                if not include_widget:
+                    continue
+                include_checkbox = include_widget.findChild(QCheckBox)
+                if include_checkbox and include_checkbox.isChecked():
+                    original_item = self.norm_table.item(row_idx, 2)
+                    if original_item:
+                        original_mfg = original_item.text()
+                        original_key = self._normalize_mfg_key(original_mfg)
+                        # Count parts in none_parts that match this manufacturer (case-insensitive, trimmed)
+                        # ONLY count non-empty MFG values
+                        for part in self.none_parts:
+                            part_mfg = part.get('ManufacturerName', '').strip()
+                            if part_mfg and self._normalize_mfg_key(part_mfg) == original_key:
+                                none_affected += 1
+
+            if none_affected > 0:
+                reply = QMessageBox.question(self, "Apply to None Category?",
+                    f"Would you like to apply manufacturer normalizations to the '{none_affected}' part(s) in the 'None' category?\n\n"
+                    f"This will update manufacturer names for parts that have not yet been found in PAS.\n"
+                    f"Note: Parts with empty manufacturer names will be skipped.",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                apply_to_none = (reply == QMessageBox.Yes)
+
+        # Apply normalizations to None category if user agreed
+        if apply_to_none:
+            none_normalizations_applied = 0
+            for row_idx in range(self.norm_table.rowCount()):
+                include_widget = self.norm_table.cellWidget(row_idx, 0)
+                if not include_widget:
+                    continue
+                include_checkbox = include_widget.findChild(QCheckBox)
+                if include_checkbox and include_checkbox.isChecked():
+                    original_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
+                    normalize_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
+
+                    if original_item and normalize_combo:
+                        original_mfg = original_item.text()
+                        canonical_mfg = normalize_combo.currentText()
+                        original_key = self._normalize_mfg_key(original_mfg)
+
+                        # Apply to none_parts (ONLY if MFG is not empty)
+                        for part in self.none_parts:
+                            part_mfg = part.get('ManufacturerName', '').strip()
+                            if part_mfg and self._normalize_mfg_key(part_mfg) == original_key:
+                                if 'original_mfg' not in part:
+                                    part['original_mfg'] = part.get('ManufacturerName', '')
+                                part['ManufacturerName'] = canonical_mfg
+                                none_normalizations_applied += 1
+
+            if none_normalizations_applied > 0:
+                print(f"DEBUG: Applied {none_normalizations_applied} manufacturer normalizations to None category")
+                # Refresh the None table to show updated manufacturers
+                if hasattr(self, 'none_table'):
+                    self.populate_category_table(self.none_table, self.none_parts, show_actions="editable")
+                QMessageBox.information(self, "Normalizations Applied",
+                    f"Applied {none_normalizations_applied} manufacturer normalization(s) to the None category.")
+
+
     def validatePage(self):
         """Apply normalizations and create Combined_New sheet before proceeding"""
         try:
@@ -4296,107 +4580,21 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                             original_mfg = original_item.text()
                             canonical_mfg = normalize_combo.currentText()
 
-                            # Get selected sheets for this row (if specific sheets were selected)
-                            selected_sheets = self.normalization_scopes.get(row_idx, None)
+            # Generate updated Excel path
+            original_path = Path(output_excel)
+            updated_excel_path = str(original_path.parent / f"{original_path.stem}_Updated{original_path.suffix}")
+            
+            # Store for next page
+            column_mapping_page.updated_excel_path = updated_excel_path
 
-                            # Apply normalization
-                            if 'MFG' in new_data.columns:
-                                if selected_sheets is None:
-                                    # Apply to all records
-                                    matches = (new_data['MFG'] == original_mfg).sum()
-                                    if matches > 0:
-                                        new_data.loc[new_data['MFG'] == original_mfg, 'MFG'] = canonical_mfg
-                                        normalizations_applied += 1
-                                        print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows, all sheets)")
-                                else:
-                                    # Apply only to records from selected sheets
-                                    if 'Source_Sheet' in new_data.columns:
-                                        mask = (new_data['MFG'] == original_mfg) & (new_data['Source_Sheet'].isin(selected_sheets))
-                                        matches = mask.sum()
-                                        if matches > 0:
-                                            new_data.loc[mask, 'MFG'] = canonical_mfg
-                                            normalizations_applied += 1
-                                            print(f"DEBUG: Normalized '{original_mfg}' → '{canonical_mfg}' ({matches} rows, sheets: {', '.join(selected_sheets)})")
+            # Write ONLY the new data to the updated file
+            # We don't need to preserve sheets in the new file as it's a fresh output
+            with pd.ExcelWriter(updated_excel_path, engine='xlsxwriter') as writer:
+                new_data.to_excel(writer, sheet_name='Combined', index=False)
+                
+            print(f"DEBUG: Saved updated data to {updated_excel_path}")
 
-                if normalizations_applied > 0:
-                    print(f"DEBUG: Applied {normalizations_applied} manufacturer normalizations")
-
-            # Ask user if they want to apply normalizations to None category
-            apply_to_none = False
-            if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations and hasattr(self, 'none_parts') and self.none_parts:
-                # Count how many parts in None category would be affected
-                none_affected = 0
-                for row_idx in range(self.norm_table.rowCount()):
-                    include_widget = self.norm_table.cellWidget(row_idx, 0)
-                    if not include_widget:
-                        continue
-                    include_checkbox = include_widget.findChild(QCheckBox)
-                    if include_checkbox and include_checkbox.isChecked():
-                        original_item = self.norm_table.item(row_idx, 2)
-                        if original_item:
-                            original_mfg = original_item.text()
-                            original_key = self._normalize_mfg_key(original_mfg)
-                            # Count parts in none_parts that match this manufacturer (case-insensitive, trimmed)
-                            for part in self.none_parts:
-                                if self._normalize_mfg_key(part.get('ManufacturerName', '')) == original_key:
-                                    none_affected += 1
-
-                if none_affected > 0:
-                    reply = QMessageBox.question(self, "Apply to None Category?",
-                        f"Would you like to apply manufacturer normalizations to the '{none_affected}' part(s) in the 'None' category?\n\n"
-                        f"This will update manufacturer names for parts that have not yet been found in PAS.",
-                        QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-                    apply_to_none = (reply == QMessageBox.Yes)
-
-            # Apply normalizations to None category if user agreed
-            if apply_to_none:
-                none_normalizations_applied = 0
-                for row_idx in range(self.norm_table.rowCount()):
-                    include_widget = self.norm_table.cellWidget(row_idx, 0)
-                    if not include_widget:
-                        continue
-                    include_checkbox = include_widget.findChild(QCheckBox)
-                    if include_checkbox and include_checkbox.isChecked():
-                        original_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
-                        normalize_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
-
-                        if original_item and normalize_combo:
-                            original_mfg = original_item.text()
-                            canonical_mfg = normalize_combo.currentText()
-                            original_key = self._normalize_mfg_key(original_mfg)
-
-                            # Apply to none_parts
-                            for part in self.none_parts:
-                                if self._normalize_mfg_key(part.get('ManufacturerName', '')) == original_key:
-                                    if 'original_mfg' not in part:
-                                        part['original_mfg'] = part.get('ManufacturerName', '')
-                                    part['ManufacturerName'] = canonical_mfg
-                                    none_normalizations_applied += 1
-
-                if none_normalizations_applied > 0:
-                    print(f"DEBUG: Applied {none_normalizations_applied} manufacturer normalizations to None category")
-                    # Refresh the None table to show updated values
-                    self.populate_category_table(self.none_table, self.none_parts, show_actions="editable")
-
-            # Read existing sheets from output Excel
-            with pd.ExcelFile(output_excel) as xls:
-                existing_sheets = {sheet: pd.read_excel(output_excel, sheet_name=sheet)
-                                 for sheet in xls.sheet_names}
-
-            # CRITICAL: Preserve the original Combined sheet - ensure it stays untouched
-            # Use the original data from Step 3 instead of re-reading from Excel
-            if hasattr(column_mapping_page, 'combined_data') and column_mapping_page.combined_data is not None:
-                existing_sheets['Combined'] = column_mapping_page.combined_data.copy()
-
-            # Add Combined_New sheet with normalized data
-            existing_sheets['Combined_New'] = new_data
-
-            # Write back to Excel
-            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                for sheet_name, df in existing_sheets.items():
-                    df.to_excel(writer, sheet_name=sheet_name, index=False)
-
-            # Store for comparison page
+            # Store for comparison page (in memory)
             self.updated_data = new_data
 
             return True
@@ -4412,7 +4610,7 @@ class ComparisonPage(QWizardPage):
     def __init__(self):
         super().__init__()
         self.setTitle("Step 5: Review Changes - Side-by-Side Comparison")
-        self.setSubTitle("Compare Combined (original) vs Combined_New (with normalization)")
+        self.setSubTitle("Compare Original File vs Updated File")
 
         layout = QVBoxLayout()
 
@@ -4460,8 +4658,8 @@ class ComparisonPage(QWizardPage):
         left_group.setLayout(left_layout)
         comparison_layout.addWidget(left_group)
 
-        # Right table: Combined_New (After Changes)
-        right_group = QGroupBox("📄 Combined_New (After Changes)")
+        # Right table: Updated Data (After Changes)
+        right_group = QGroupBox("📄 Updated Data (New File)")
         right_layout = QVBoxLayout()
 
         self.right_table = QTableWidget()
@@ -4538,20 +4736,25 @@ class ComparisonPage(QWizardPage):
             return
 
         try:
-            # Load Combined (original) sheet
+            # Load Combined (original) sheet from ORIGINAL file
             if 'Combined' in pd.ExcelFile(excel_path).sheet_names:
                 self.original_df = pd.read_excel(excel_path, sheet_name='Combined')
             else:
-                self.summary_label.setText("❌ 'Combined' sheet not found in Excel file")
+                self.summary_label.setText("❌ 'Combined' sheet not found in original Excel file")
                 return
 
-            # Load Combined_New (after changes) sheet
-            if 'Combined_New' in pd.ExcelFile(excel_path).sheet_names:
-                self.new_df = pd.read_excel(excel_path, sheet_name='Combined_New')
+            # Load Combined (new) sheet from UPDATED file
+            if hasattr(column_mapping_page, 'updated_excel_path') and os.path.exists(column_mapping_page.updated_excel_path):
+                updated_path = column_mapping_page.updated_excel_path
+                if 'Combined' in pd.ExcelFile(updated_path).sheet_names:
+                    self.new_df = pd.read_excel(updated_path, sheet_name='Combined')
+                else:
+                    self.summary_label.setText(f"❌ 'Combined' sheet not found in updated file: {updated_path}")
+                    return
             else:
-                # If Combined_New doesn't exist yet, use Combined as placeholder
+                # Fallback if updated file missing (shouldn't happen if Step 4 succeeded)
+                self.summary_label.setText("⚠ Updated file not found - showing original data only")
                 self.new_df = self.original_df.copy()
-                self.summary_label.setText("⚠ 'Combined_New' sheet not found - showing original data only")
 
             # Build comparison
             self.build_comparison()

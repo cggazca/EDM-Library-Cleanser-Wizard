@@ -99,6 +99,63 @@ class CollapsibleGroupBox(QGroupBox):
             self._content_widget.setVisible(checked)
 
 
+class SaveOptionsDialog(QDialog):
+    """Dialog to ask user how to save changes"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Save Options")
+        self.resize(450, 350)
+        
+        layout = QVBoxLayout(self)
+        
+        # Option 1: Column Handling
+        group1 = QGroupBox("Column Handling")
+        vbox1 = QVBoxLayout()
+        self.overwrite_radio = QRadioButton("Overwrite existing MFG and MFG_PN columns")
+        self.new_cols_radio = QRadioButton("Create new columns (New_MFG, New_MFG_PN)")
+        self.new_cols_radio.setChecked(True) # Default to safe option
+        
+        # Add tooltips
+        self.overwrite_radio.setToolTip("WARNING: This will replace the original data in your Excel sheet.")
+        self.new_cols_radio.setToolTip("Safest option: Adds new columns to the end of your sheet.")
+        
+        vbox1.addWidget(self.new_cols_radio)
+        vbox1.addWidget(self.overwrite_radio)
+        group1.setLayout(vbox1)
+        layout.addWidget(group1)
+        
+        # Option 2: External ID
+        group2 = QGroupBox("Additional Data")
+        vbox2 = QVBoxLayout()
+        self.ext_id_check = QCheckBox("Add External_ID column")
+        self.ext_id_check.setChecked(True)
+        self.ext_id_check.setEnabled(False) # Force enabled as requested
+        self.ext_id_check.setToolTip("Required: Adds the unique ID from the search results.")
+        vbox2.addWidget(self.ext_id_check)
+        group2.setLayout(vbox2)
+        layout.addWidget(group2)
+        
+        # Info
+        info_label = QLabel("Changes will be applied back to your original source sheets.")
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #666; font-style: italic; margin-top: 10px;")
+        layout.addWidget(info_label)
+        
+        layout.addStretch()
+        
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def get_settings(self):
+        return {
+            'overwrite': self.overwrite_radio.isChecked(),
+            'add_external_id': self.ext_id_check.isChecked()
+        }
+
+
 class ComparisonPage(QWizardPage):
     """Step 5: Side-by-Side Comparison - Beyond Compare Style"""
 
@@ -471,6 +528,133 @@ class ComparisonPage(QWizardPage):
         except Exception as e:
             self.export_status.setText(f"✗ Export failed: {str(e)}")
             self.export_status.setStyleSheet("color: red;")
+
+    def validatePage(self):
+        """Handle Finish button click - Save changes per sheet"""
+        
+        # 1. Ask user for options
+        dialog = SaveOptionsDialog(self)
+        if dialog.exec_() != QDialog.Accepted:
+            return False
+            
+        settings = dialog.get_settings()
+        overwrite = settings['overwrite']
+        
+        try:
+            # 2. Get necessary paths and data
+            column_mapping_page = self.wizard().page(2)
+            output_excel = column_mapping_page.output_excel_path
+            mappings = column_mapping_page.get_mappings()
+            
+            if self.new_df is None: # Combined_New
+                 QMessageBox.warning(self, "Error", "No new data to save.")
+                 return False
+
+            # 3. Load all original sheets
+            # We need to read the original file again to get all sheets
+            with pd.ExcelFile(output_excel) as xls:
+                sheet_names = xls.sheet_names
+                all_sheets = {sheet: pd.read_excel(output_excel, sheet_name=sheet) for sheet in sheet_names}
+            
+            # 4. Map changes back to source sheets
+            if 'Source_Sheet' not in self.new_df.columns:
+                QMessageBox.warning(self, "Error", "Source_Sheet column missing. Cannot map back to sheets.")
+                return False
+                
+            # Group new data by Source_Sheet
+            grouped = self.new_df.groupby('Source_Sheet')
+            
+            updated_sheets_count = 0
+            
+            for sheet_name, sheet_data in grouped:
+                if sheet_name not in all_sheets:
+                    print(f"Warning: Source sheet '{sheet_name}' not found in Excel file. Skipping.")
+                    continue
+                
+                original_sheet = all_sheets[sheet_name]
+                
+                # Get column mapping for this sheet
+                if sheet_name not in mappings:
+                    print(f"Warning: No mapping found for sheet '{sheet_name}'. Skipping.")
+                    continue
+                    
+                sheet_mapping = mappings[sheet_name]
+                orig_pn_col = sheet_mapping.get('Part_Number')
+                orig_mfg_col = sheet_mapping.get('MFG')
+                orig_mfg_pn_col = sheet_mapping.get('MFG_PN')
+                
+                if not orig_pn_col or orig_pn_col not in original_sheet.columns:
+                    print(f"Warning: Part Number column '{orig_pn_col}' not found in sheet '{sheet_name}'. Cannot match rows.")
+                    continue
+                
+                # Create a lookup dictionary for the NEW data: Part_Number -> Row Data
+                # We use the 'Part_Number' column from Combined_New, which corresponds to orig_pn_col
+                new_data_lookup = sheet_data.set_index('Part_Number').to_dict('index')
+                
+                # Iterate through original sheet and update rows
+                # This preserves original order and rows that might have been filtered out
+                rows_updated = 0
+                
+                # Prepare new columns if needed
+                if not overwrite:
+                    if 'New_MFG' not in original_sheet.columns:
+                        original_sheet['New_MFG'] = ""
+                    if 'New_MFG_PN' not in original_sheet.columns:
+                        original_sheet['New_MFG_PN'] = ""
+                
+                if 'External_ID' not in original_sheet.columns:
+                    original_sheet['External_ID'] = ""
+                
+                for idx, row in original_sheet.iterrows():
+                    pn_val = row[orig_pn_col]
+                    
+                    # Find corresponding updated data
+                    if pn_val in new_data_lookup:
+                        updated_row = new_data_lookup[pn_val]
+                        
+                        # Get new values
+                        new_mfg = updated_row.get('MFG', '')
+                        new_mfg_pn = updated_row.get('MFG_PN', '')
+                        ext_id = updated_row.get('External_ID', '')
+                        
+                        # Update Original Sheet
+                        if overwrite:
+                            if orig_mfg_col:
+                                original_sheet.at[idx, orig_mfg_col] = new_mfg
+                            if orig_mfg_pn_col:
+                                original_sheet.at[idx, orig_mfg_pn_col] = new_mfg_pn
+                        else:
+                            original_sheet.at[idx, 'New_MFG'] = new_mfg
+                            original_sheet.at[idx, 'New_MFG_PN'] = new_mfg_pn
+                            
+                        # Always update External_ID
+                        original_sheet.at[idx, 'External_ID'] = ext_id
+                        
+                        rows_updated += 1
+                
+                print(f"Updated {rows_updated} rows in sheet '{sheet_name}'")
+                updated_sheets_count += 1
+            
+            # 5. Save back to Excel
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                for sheet_name, df in all_sheets.items():
+                    # Skip the temp sheets if desired, or keep them. 
+                    # User requested "two seperate data sets". 
+                    # If we update the source sheets, those ARE the new data set (if we consider the file as the set).
+                    # But maybe they want a CLEAN file without 'Combined'?
+                    # For safety, let's keep everything for now.
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+            QMessageBox.information(self, "Success", 
+                                  f"Changes saved successfully!\n\n"
+                                  f"Updated {updated_sheets_count} sheets in:\n{output_excel}")
+            return True
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to save changes: {str(e)}")
+            return False
 
 
 class EDMWizard(QWizard):

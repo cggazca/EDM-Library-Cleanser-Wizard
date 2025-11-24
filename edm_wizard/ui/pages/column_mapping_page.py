@@ -257,7 +257,7 @@ class ColumnMappingPage(QWizardPage):
         self.combined_data = None  # Will store combined dataframe for PAS Search
 
         # Set recommended defaults for filters
-        self.filter_mfg.setChecked(True)  # Require MFG by default
+        self.filter_mfg.setChecked(False)  # Require MFG by default
         self.filter_mfg_pn.setChecked(True)  # Require MFG PN by default (CRITICAL for PAS search)
 
     def initializePage(self):
@@ -923,7 +923,29 @@ class ColumnMappingPage(QWizardPage):
                 QMessageBox.critical(self, "Combine Error", f"Failed to combine sheets: {str(e)}")
                 return False
 
+        # Auto-save configuration
+        self.auto_save_configuration()
+
         return True
+
+    def auto_save_configuration(self):
+        """Automatically save mapping configuration to a default file"""
+        try:
+            # Save to a fixed file in the current directory or a .gemini folder if preferred
+            # For now, saving to 'mapping_config_autosave.json' in the current working directory
+            file_path = "mapping_config_autosave.json"
+            
+            config = {
+                'mappings': self.get_mappings(),
+                'version': '1.0',
+                'timestamp': pd.Timestamp.now().isoformat()
+            }
+
+            with open(file_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            print(f"Auto-saved mapping configuration to {file_path}")
+        except Exception as e:
+            print(f"Failed to auto-save configuration: {str(e)}")
 
     def combine_sheets(self):
         """Combine sheets based on mappings and filters"""

@@ -649,10 +649,10 @@ IMPORTANT:
                             skipped_count += 1
                             continue
 
-                        # CRITICAL: Ensure canonical is in PAS list OR is a well-known expansion
-                        # Skip if canonical is also in source data (means AI suggested user's data as target)
-                        if canonical in self.all_manufacturers and canonical not in self.supplyframe_manufacturers:
-                            self.progress.emit(f"Skipping '{variation}' → '{canonical}' (canonical is not from PAS)")
+                        # CRITICAL: Ensure canonical is ONLY from PAS list
+                        # This is the primary purpose of normalization - map to PAS canonical names
+                        if canonical not in self.supplyframe_manufacturers:
+                            self.progress.emit(f"Skipping '{variation}' → '{canonical}' (target not in PAS canonical list)")
                             skipped_count += 1
                             continue
 

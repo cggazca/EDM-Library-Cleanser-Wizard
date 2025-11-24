@@ -230,8 +230,8 @@ class PASSearchPage(QWizardPage):
             parts_list = self.combined_data.to_dict('records')
 
             # Start search thread with parallel execution
-            # max_workers=15 means 15 concurrent PAS API calls (adjustable for performance)
-            self.search_thread = PASSearchThread(self.pas_client, parts_list, max_workers=15)
+            # max_workers=30 means 30 concurrent PAS API calls (adjustable for performance)
+            self.search_thread = PASSearchThread(self.pas_client, parts_list, max_workers=30)
             self.search_thread.progress.connect(self.on_search_progress)
             self.search_thread.result_ready.connect(self.on_result_ready)  # Real-time display
             self.search_thread.finished.connect(self.on_search_finished)

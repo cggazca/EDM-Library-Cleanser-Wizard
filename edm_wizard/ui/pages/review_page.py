@@ -562,12 +562,15 @@ class SupplyFrameReviewPage(QWizardPage):
                 normalize_combo.setCurrentText(canonical)
                 self.norm_table.setCellWidget(row_idx, 3, normalize_combo)
 
-                # Column 4: Similarity - show fuzzy match score only
+                # Column 4: Similarity - show fuzzy match score for fuzzy and manual methods
                 similarity_item = QTableWidgetItem("")
                 similarity_item.setTextAlignment(Qt.AlignCenter)
-                if method == 'fuzzy' and score > 0:
+                if (method in ['fuzzy', 'manual']) and score > 0:
                     similarity_item.setText(f"{score}%")
-                    similarity_item.setToolTip(f"Fuzzy match similarity: {score}%")
+                    if method == 'fuzzy':
+                        similarity_item.setToolTip(f"Fuzzy match similarity: {score}%")
+                    else:  # manual with score
+                        similarity_item.setToolTip(f"Low confidence match: {score}% - please review")
                 self.norm_table.setItem(row_idx, 4, similarity_item)
 
                 # Column 5: AI Score - show AI confidence score only
@@ -771,8 +774,8 @@ class SupplyFrameReviewPage(QWizardPage):
         elif category == "Errors":
             self.errors_table = parts_table
         
-        # Bulk actions (only for interactive categories)
-        if show_actions:
+        # Bulk actions (only for interactive categories, excluding None/editable)
+        if show_actions is True:
             bulk_layout = QHBoxLayout()
             auto_select_btn = QPushButton("Auto-Select Highest Similarity")
             auto_select_btn.clicked.connect(lambda: self.auto_select_highest_for_category(category))
@@ -925,13 +928,19 @@ class SupplyFrameReviewPage(QWizardPage):
             elif category == "Need Review":
                 self.need_review_none_correct_checkbox = none_correct_checkbox
             
-            # Save button for selections
+            # Save buttons for selections
             save_layout = QHBoxLayout()
             save_selection_btn = QPushButton("💾 Save Selection")
             save_selection_btn.clicked.connect(self.save_current_selection)
             save_selection_btn.setEnabled(False)
             save_selection_btn.setToolTip("Save your current match selection for this part")
             save_layout.addWidget(save_selection_btn)
+            
+            save_all_btn = QPushButton("💾 Save All Selections")
+            save_all_btn.clicked.connect(lambda: self.save_all_selections_for_category(category))
+            save_all_btn.setToolTip("Save all parts that have a selected match")
+            save_layout.addWidget(save_all_btn)
+            
             save_layout.addStretch()
             right_layout.addLayout(save_layout)
             
@@ -2845,6 +2854,19 @@ class SupplyFrameReviewPage(QWizardPage):
             # Column 4: Lifecycle Status
             lifecycle_item = QTableWidgetItem(lifecycle_status or '')
             lifecycle_item.setToolTip(f"Lifecycle Status Code: {lifecycle_code}" if lifecycle_code else "No lifecycle info")
+            
+            # Color coding for lifecycle status
+            if lifecycle_status:
+                status_lower = lifecycle_status.lower()
+                if any(x in status_lower for x in ['active', 'production', 'preferred', 'recommended']):
+                    lifecycle_item.setBackground(QColor(200, 230, 201))  # Light Green
+                elif any(x in status_lower for x in ['obsolete', 'eol', 'end of life', 'discontinued']):
+                    lifecycle_item.setBackground(QColor(255, 205, 210))  # Light Red
+                elif any(x in status_lower for x in ['nrnd', 'not recommended', 'last time buy']):
+                    lifecycle_item.setBackground(QColor(255, 224, 178))  # Light Orange
+                elif any(x in status_lower for x in ['unknown', 'unconfirmed']):
+                    lifecycle_item.setBackground(QColor(255, 249, 196))  # Light Yellow
+            
             matches_table.setItem(match_idx, 4, lifecycle_item)
 
             # Column 5: External ID (link)
@@ -3181,6 +3203,178 @@ class SupplyFrameReviewPage(QWizardPage):
         QMessageBox.information(self, "Selection Saved",
                               f"Match selection saved for {part['PartNumber']}")
 
+    def save_all_selections_for_category(self, category):
+        """Save all parts with selected matches for a specific category"""
+        parts_list, table = self.get_parts_list_for_category(category)
+        if not parts_list:
+            return
+
+        saved_count = 0
+        for part in parts_list:
+            if part.get('selected_match'):
+                # Mark as reviewed/saved
+                if 'reviewed' not in part:
+                    part['reviewed'] = True
+                    saved_count += 1
+
+        if saved_count == 0:
+            QMessageBox.information(self, "No Selections",
+                                  f"No parts in '{category}' have selected matches to save.")
+            return
+
+        # Refresh the table to show updated review status
+        self.populate_category_table(table, parts_list, show_actions=True)
+        
+        # Update review count
+        self.update_review_count()
+
+        QMessageBox.information(self, "All Selections Saved",
+                              f"Saved {saved_count} part selection(s) in '{category}' category.")
+
+    def get_parts_list_for_category(self, category):
+        """Helper to get the correct parts list and table for a category"""
+        if category == "Multiple":
+            return self.multiple_parts, self.multiple_table
+        elif category == "Need Review":
+            return self.need_review_parts, self.need_review_table
+        elif category == "Found":
+            return self.found_parts, self.found_table
+        return None, None
+
+    def auto_select_highest_for_category(self, category):
+        """Auto-select match with highest similarity for a specific category"""
+        parts_list, table = self.get_parts_list_for_category(category)
+        if not parts_list:
+            return
+
+        from difflib import SequenceMatcher
+
+        selected_count = 0
+        for part in parts_list:
+            if not part.get('matches'):
+                continue
+
+            # Skip if already has a selection (optional, but safer)
+            # if part.get('selected_match'):
+            #     continue
+
+            original_pn = part.get('PartNumber', '').upper().strip()
+            original_mfg = part.get('ManufacturerName', '').upper().strip()
+            best_match = None
+            best_similarity = 0.0
+
+            # Calculate similarity for each match
+            for match in part['matches']:
+                # Extract match information using helper function
+                match_pn, match_mfg, _, _, _, _, _ = self._get_match_info(match)
+
+                match_pn = match_pn.upper().strip()
+                match_mfg = match_mfg.upper().strip()
+
+                # Calculate combined similarity (60% part number, 40% manufacturer)
+                pn_similarity = SequenceMatcher(None, original_pn, match_pn).ratio()
+                mfg_similarity = SequenceMatcher(None, original_mfg, match_mfg).ratio() if match_mfg else 0
+
+                # Weighted average
+                combined_similarity = (pn_similarity * 0.6) + (mfg_similarity * 0.4)
+
+                if combined_similarity > best_similarity:
+                    best_similarity = combined_similarity
+                    best_match = match
+
+            if best_match:
+                part['selected_match'] = best_match
+                part['auto_selected'] = True
+                part['similarity_score'] = best_similarity
+                selected_count += 1
+
+        QMessageBox.information(self, "Auto-Select Complete",
+                              f"Selected best match for {selected_count} parts in '{category}' category.")
+
+        # Refresh the table
+        self.populate_category_table(table, parts_list, show_actions=True)
+        
+        # Update review count
+        self.update_review_count()
+
+    def ai_suggest_matches_for_category(self, category):
+        """Use AI to suggest best matches for a specific category"""
+        parts_list, table = self.get_parts_list_for_category(category)
+        if not parts_list:
+            return
+
+        # Get API key
+        start_page = self.wizard().page(0)
+        self.api_key = start_page.get_api_key() if hasattr(start_page, 'get_api_key') else None
+
+        if not self.api_key or not ANTHROPIC_AVAILABLE:
+            QMessageBox.warning(self, "AI Not Available",
+                              "Claude AI is not available. Please provide an API key.")
+            return
+
+        # Get combined data from previous step
+        xml_gen_page = self.wizard().page(3)
+        if hasattr(xml_gen_page, 'combined_data'):
+            self.combined_data = xml_gen_page.combined_data
+
+        # Filter out already processed parts
+        unprocessed_parts = [part for part in parts_list
+                            if not part.get('ai_processed')]
+
+        if not unprocessed_parts:
+            QMessageBox.information(self, "All Processed",
+                                  f"All parts in '{category}' have already been processed by AI.")
+            return
+
+        # Mark unprocessed parts as processing
+        for part in unprocessed_parts:
+            part['ai_processing'] = True
+
+        # Refresh parts list to show processing indicators
+        self.populate_category_table(table, parts_list, show_actions=True)
+
+        # Start AI thread with only unprocessed parts
+        self.ai_match_thread = PartialMatchAIThread(
+            self.api_key,
+            unprocessed_parts,
+            self.combined_data
+        )
+        
+        # Connect signals - reuse existing handlers but they might need adaptation
+        # Ideally we should pass the category or table to the handler, but for now
+        # let's assume the handler updates the UI generically or we refresh everything.
+        # Actually, on_part_analyzed uses row_idx which is relative to the list passed.
+        # But on_part_analyzed uses self.parts_needing_review (hardcoded!).
+        # We need to fix on_part_analyzed too! 
+        
+        # For now, let's just use the generic progress handler and refresh everything at the end.
+        self.ai_match_thread.progress.connect(self.on_ai_match_progress)
+        
+        # We need a custom finished handler to refresh the correct table
+        self.ai_match_thread.finished.connect(lambda results: self.on_ai_match_finished_category(results, table, parts_list))
+        self.ai_match_thread.error.connect(self.on_ai_match_error)
+        self.ai_match_thread.start()
+
+    def on_ai_match_finished_category(self, suggestions, table, parts_list):
+        """Handle AI completion for a specific category"""
+        # Apply suggestions and auto-save
+        count = 0
+        saved_count = 0
+        for part in parts_list:
+            if part.get('ai_processed') and part.get('selected_match'):
+                count += 1
+                # Auto-save AI suggestions
+                if 'reviewed' not in part or not part['reviewed']:
+                    part['reviewed'] = True
+                    saved_count += 1
+
+        self.populate_category_table(table, parts_list, show_actions=True)
+        self.update_review_count()
+        
+        QMessageBox.information(self, "AI Analysis Complete",
+                              f"AI analysis completed for {count} parts.\n"
+                              f"Automatically saved {saved_count} AI suggestion(s).")
+
     def auto_select_highest(self):
         """Auto-select match with highest similarity using difflib (MFG + MFG PN)"""
         from difflib import SequenceMatcher
@@ -3240,11 +3434,11 @@ class SupplyFrameReviewPage(QWizardPage):
         if part.get('ai_processed') or part.get('ai_processing'):
             return
 
-        # Skip if only one match
-        if len(part['matches']) <= 1:
-            QMessageBox.information(self, "No AI Needed",
-                                  "This part has only one match. No AI analysis needed.")
-            return
+        # Allow AI analysis even for single matches (useful for Need Review)
+        # if len(part['matches']) <= 1:
+        #     QMessageBox.information(self, "No AI Needed",
+        #                           "This part has only one match. No AI analysis needed.")
+        #     return
 
         # Get API key
         start_page = self.wizard().page(0)

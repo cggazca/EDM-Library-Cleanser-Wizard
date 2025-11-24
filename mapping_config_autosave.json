@@ -1,0 +1,167 @@
+{
+  "mappings": {
+    "CABLE": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "CAPACITOR": {
+      "MFG": "FIRM",
+      "MFG_PN": "CODE_FIRM",
+      "MFG_PN_2": "",
+      "Part_Number": "DEVICE",
+      "Description": "PART_SPEC"
+    },
+    "CARD": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "CONNECTOR": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "CRYSTAL": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "CUSTOMER": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "DIODE": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "DUT": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "Errori di incollamento": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "FUSE": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "IMP_TRASF": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "IP": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "ITG": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "LAYOUT": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "Link_Table": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "MECC_TRASD": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "Paste Errors": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "RELAY": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "RESISTOR": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "Serie74": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "SOCKET": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "SOURCE": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    },
+    "TRANSISTOR": {
+      "MFG": "",
+      "MFG_PN": "",
+      "MFG_PN_2": "",
+      "Part_Number": "",
+      "Description": ""
+    }
+  },
+  "version": "1.0",
+  "timestamp": "2025-11-24T16:03:33.130486"
+}

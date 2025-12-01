@@ -4752,11 +4752,29 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             if hasattr(self, 'search_results') and self.search_results:
                 for part_data in self.search_results:
                     if 'selected_match' in part_data and part_data['selected_match']:
-                        selected = part_data['selected_match']
-                        # Find matching row in new_data
-                        mask = (new_data['MFG_PN'] == part_data.get('part_number', ''))
-                        if mask.any():
-                            new_data.loc[mask, 'MFG'] = selected.get('manufacturer', '')
+                        selected_match = part_data['selected_match']
+
+                        # Extract PN and MFG from match
+                        if isinstance(selected_match, dict):
+                            new_pn = selected_match.get('mpn', '').strip()
+                            new_mfg = selected_match.get('mfg', '').strip()
+                        elif isinstance(selected_match, str) and '@' in selected_match:
+                            new_pn, new_mfg = selected_match.split('@', 1)
+                            new_pn = new_pn.strip()
+                            new_mfg = new_mfg.strip()
+                        else:
+                            continue  # Skip invalid format
+
+                        if new_pn and new_mfg:
+                            # Get original values to find matching rows
+                            original_pn = part_data.get('PartNumber', '')
+                            original_mfg = part_data.get('ManufacturerName', '')
+
+                            # Find and update matching rows
+                            mask = (new_data['MFG_PN'] == original_pn) & (new_data['MFG'] == original_mfg)
+                            if mask.any():
+                                new_data.loc[mask, 'MFG_PN'] = new_pn
+                                new_data.loc[mask, 'MFG'] = new_mfg
 
             # Apply manufacturer normalizations
             if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:
@@ -4769,24 +4787,60 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                     if include_checkbox and include_checkbox.isChecked():
                         original_item = self.norm_table.item(row_idx, 2)  # Column 2: Original MFG
                         normalize_combo = self.norm_table.cellWidget(row_idx, 3)  # Column 3: Normalize To
+                        scope_combo = self.norm_table.cellWidget(row_idx, 7)  # Column 7: Scope
 
-                        if original_item and normalize_combo:
-                            original_mfg = original_item.text()
-                            canonical_mfg = normalize_combo.currentText()
+                        if original_item and normalize_combo and scope_combo:
+                            original_mfg = original_item.text().strip()
+                            canonical_mfg = normalize_combo.currentText().strip()
+                            scope = scope_combo.currentText()
 
-            # Generate updated Excel path
-            original_path = Path(output_excel)
-            updated_excel_path = str(original_path.parent / f"{original_path.stem}_Updated{original_path.suffix}")
-            
-            # Store for next page
-            column_mapping_page.updated_excel_path = updated_excel_path
+                            # Get selected sheets for this row (if specific sheets were selected)
+                            selected_sheets = self.normalization_scopes.get(row_idx, None)
 
-            # Write ONLY the new data to the updated file
-            # We don't need to preserve sheets in the new file as it's a fresh output
-            with pd.ExcelWriter(updated_excel_path, engine='xlsxwriter') as writer:
-                new_data.to_excel(writer, sheet_name='Combined', index=False)
-                
-            print(f"DEBUG: Saved updated data to {updated_excel_path}")
+                            # Apply normalization based on scope
+                            if scope == "All Catalogs" or selected_sheets is None:
+                                # Apply to all records with this manufacturer variation
+                                mask = (new_data['MFG'] == original_mfg)
+                                if mask.any():
+                                    new_data.loc[mask, 'MFG'] = canonical_mfg
+                                    normalizations_applied += mask.sum()
+                            else:
+                                # Apply only to records from selected sheets
+                                mask = (new_data['MFG'] == original_mfg) & (new_data['Source_Sheet'].isin(selected_sheets))
+                                if mask.any():
+                                    new_data.loc[mask, 'MFG'] = canonical_mfg
+                                    normalizations_applied += mask.sum()
+
+            # Write Combined_New sheet to the existing Excel file
+            # This allows the comparison page to load both "Combined" and "Combined_New" from the same file
+            try:
+                # Load existing Excel file
+                excel_file = pd.ExcelFile(output_excel)
+
+                # Read all existing sheets
+                existing_sheets = {}
+                for sheet_name in excel_file.sheet_names:
+                    # Skip Combined_New if it already exists (we'll recreate it)
+                    if sheet_name != 'Combined_New':
+                        existing_sheets[sheet_name] = pd.read_excel(excel_file, sheet_name=sheet_name)
+
+                # Write all sheets back including the new Combined_New sheet
+                with pd.ExcelWriter(output_excel, engine='openpyxl', mode='w') as writer:
+                    # Write existing sheets first
+                    for sheet_name, sheet_df in existing_sheets.items():
+                        sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                    # Write the new Combined_New sheet with normalized data
+                    new_data.to_excel(writer, sheet_name='Combined_New', index=False)
+
+                print(f"DEBUG: Added 'Combined_New' sheet to {output_excel}")
+
+            except Exception as e:
+                print(f"ERROR: Failed to write Combined_New sheet: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                QMessageBox.critical(self, "Error", f"Failed to save Combined_New sheet:\n{str(e)}")
+                return False
 
             # Store for comparison page (in memory)
             self.updated_data = new_data

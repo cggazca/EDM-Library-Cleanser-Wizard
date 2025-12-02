@@ -4748,33 +4748,55 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             # Start with a copy of the combined data
             new_data = column_mapping_page.combined_data.copy()
 
-            # Apply selected partial matches from search results
+            # Initialize External_Content_ID column if it doesn't exist
+            if 'External_Content_ID' not in new_data.columns:
+                new_data['External_Content_ID'] = ''
+
+            # Apply search results (both exact matches and selected partial matches)
             if hasattr(self, 'search_results') and self.search_results:
                 for part_data in self.search_results:
+                    # Get original values to find matching rows
+                    original_pn = part_data.get('PartNumber', '')
+                    original_mfg = part_data.get('ManufacturerName', '')
+                    match_type = part_data.get('match_type', '')
+
+                    # Find matching rows in the data
+                    mask = (new_data['MFG_PN'] == original_pn) & (new_data['MFG'] == original_mfg)
+                    if not mask.any():
+                        continue
+
+                    # Handle "Found" (exact match) - use first match's external_id
+                    if match_type == 'Found':
+                        matches = part_data.get('matches', [])
+                        if matches and len(matches) > 0:
+                            first_match = matches[0]
+                            if isinstance(first_match, dict):
+                                external_id = first_match.get('external_id', '')
+                                if external_id:
+                                    new_data.loc[mask, 'External_Content_ID'] = external_id
+
+                    # Handle selected partial matches (Multiple, Need user review)
                     if 'selected_match' in part_data and part_data['selected_match']:
                         selected_match = part_data['selected_match']
 
-                        # Extract PN and MFG from match
+                        # Extract PN, MFG, and external_id from match
                         if isinstance(selected_match, dict):
                             new_pn = selected_match.get('mpn', '').strip()
                             new_mfg = selected_match.get('mfg', '').strip()
+                            external_id = selected_match.get('external_id', '')
                         elif isinstance(selected_match, str) and '@' in selected_match:
                             new_pn, new_mfg = selected_match.split('@', 1)
                             new_pn = new_pn.strip()
                             new_mfg = new_mfg.strip()
+                            external_id = ''
                         else:
                             continue  # Skip invalid format
 
                         if new_pn and new_mfg:
-                            # Get original values to find matching rows
-                            original_pn = part_data.get('PartNumber', '')
-                            original_mfg = part_data.get('ManufacturerName', '')
-
-                            # Find and update matching rows
-                            mask = (new_data['MFG_PN'] == original_pn) & (new_data['MFG'] == original_mfg)
-                            if mask.any():
-                                new_data.loc[mask, 'MFG_PN'] = new_pn
-                                new_data.loc[mask, 'MFG'] = new_mfg
+                            new_data.loc[mask, 'MFG_PN'] = new_pn
+                            new_data.loc[mask, 'MFG'] = new_mfg
+                            if external_id:
+                                new_data.loc[mask, 'External_Content_ID'] = external_id
 
             # Apply manufacturer normalizations
             if hasattr(self, 'manufacturer_normalizations') and self.manufacturer_normalizations:

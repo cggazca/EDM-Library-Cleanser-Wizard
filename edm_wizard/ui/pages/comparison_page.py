@@ -233,6 +233,8 @@ class ComparisonPage(QWizardPage):
             self.build_comparison()
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.summary_label.setText(f"Error loading data: {str(e)}")
 
     def get_mapped_columns(self):
@@ -266,60 +268,69 @@ class ComparisonPage(QWizardPage):
 
     def build_comparison(self):
         """Build side-by-side comparison with Beyond Compare styling"""
-        if self.original_df is None or self.new_df is None:
-            return
+        try:
+            if self.original_df is None or self.new_df is None:
+                return
 
-        # Get only the mapped columns to display
-        mapped_columns = self.get_mapped_columns()
+            # Get only the mapped columns to display
+            mapped_columns = self.get_mapped_columns()
 
-        # Ensure both DataFrames have the same columns (only mapped ones)
-        for col in mapped_columns:
-            if col not in self.original_df.columns:
-                self.original_df[col] = ""
-            if col not in self.new_df.columns:
-                self.new_df[col] = ""
+            # Ensure both DataFrames have the same columns (only mapped ones)
+            for col in mapped_columns:
+                if col not in self.original_df.columns:
+                    self.original_df[col] = ""
+                if col not in self.new_df.columns:
+                    self.new_df[col] = ""
 
-        # Filter to only show mapped columns
-        self.original_df = self.original_df[mapped_columns]
-        self.new_df = self.new_df[mapped_columns]
+            # Filter to only show mapped columns
+            self.original_df = self.original_df[mapped_columns]
+            self.new_df = self.new_df[mapped_columns]
 
-        # Build row comparison data
-        self.all_rows = []
-        max_rows = max(len(self.original_df), len(self.new_df))
+            # Build row comparison data
+            self.all_rows = []
+            max_rows = max(len(self.original_df), len(self.new_df))
 
-        changed_count = 0
-        for i in range(max_rows):
-            row_changed = False
-            if i < len(self.original_df) and i < len(self.new_df):
-                # Compare each cell (only mapped columns)
-                for col in mapped_columns:
-                    old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
-                    new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
-                    if old_val != new_val:
-                        row_changed = True
-                        break
+            changed_count = 0
+            for i in range(max_rows):
+                row_changed = False
+                if i < len(self.original_df) and i < len(self.new_df):
+                    # Compare each cell (only mapped columns)
+                    for col in mapped_columns:
+                        old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
+                        new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
+                        if old_val != new_val:
+                            row_changed = True
+                            break
+                else:
+                    row_changed = True  # Row exists in one but not the other
+
+                if row_changed:
+                    changed_count += 1
+
+                self.all_rows.append({
+                    'index': i,
+                    'changed': row_changed
+                })
+
+            # Update summary
+            total = len(self.all_rows)
+            unchanged = total - changed_count
+            if total > 0:
+                self.summary_label.setText(
+                    f"<b>Total Rows:</b> {total} | "
+                    f"<b>Changed:</b> {changed_count} ({changed_count/total*100:.1f}%) | "
+                    f"<b>Unchanged:</b> {unchanged} ({unchanged/total*100:.1f}%)"
+                )
             else:
-                row_changed = True  # Row exists in one but not the other
+                self.summary_label.setText("<b>No data to compare</b>")
 
-            if row_changed:
-                changed_count += 1
+            # Populate tables
+            self.populate_tables()
 
-            self.all_rows.append({
-                'index': i,
-                'changed': row_changed
-            })
-
-        # Update summary
-        total = len(self.all_rows)
-        unchanged = total - changed_count
-        self.summary_label.setText(
-            f"<b>Total Rows:</b> {total} | "
-            f"<b>Changed:</b> {changed_count} ({changed_count/total*100:.1f}%) | "
-            f"<b>Unchanged:</b> {unchanged} ({unchanged/total*100:.1f}%)"
-        )
-
-        # Populate tables
-        self.populate_tables()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.summary_label.setText(f"Error building comparison: {str(e)}")
 
     def populate_tables(self):
         """Populate both tables with data and Beyond Compare style formatting"""

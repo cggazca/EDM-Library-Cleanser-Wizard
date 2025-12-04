@@ -298,7 +298,7 @@ class ColumnMappingPage(QWizardPage):
 
     def update_action_buttons_state(self):
         """Enable or disable per-row action buttons based on API key availability"""
-        enabled = self.api_key and ANTHROPIC_AVAILABLE
+        enabled = bool(self.api_key and ANTHROPIC_AVAILABLE)
 
         for row in range(self.mapping_table.rowCount()):
             action_btn = self.mapping_table.cellWidget(row, 7)
@@ -969,14 +969,14 @@ class ColumnMappingPage(QWizardPage):
             # Get mapped columns
             sheet_mapping = mappings[sheet_name]
 
-            # Rename columns to standard names
-            rename_dict = {}
+            # ADD new standard columns by COPYING from mapped columns (preserve originals)
+            # This keeps original column names intact and adds standardized columns
             for key, col_name in sheet_mapping.items():
                 if col_name and key != 'MFG_PN_2':  # MFG_PN_2 is handled separately
-                    rename_dict[col_name] = key
-
-            if rename_dict:
-                df_copy = df_copy.rename(columns=rename_dict)
+                    # Only add if the source column exists and target doesn't already exist
+                    if col_name in df_copy.columns:
+                        # Copy values to new standard column name
+                        df_copy[key] = df_copy[col_name]
 
             # Handle MFG PN fallback: if MFG_PN is empty, use MFG_PN_2
             if 'MFG_PN' in df_copy.columns and sheet_mapping.get('MFG_PN_2'):
@@ -992,7 +992,7 @@ class ColumnMappingPage(QWizardPage):
                 mfg_empty = df_copy['MFG'].isna() | (df_copy['MFG'].astype(str).str.strip() == '')
                 df_copy.loc[mfg_pn_filled & mfg_empty, 'MFG'] = 'TBD'
 
-            # Apply filters
+            # Apply filters using the NEW standard column names
             mask = pd.Series([True] * len(df_copy))
 
             if filters['MFG'] and 'MFG' in df_copy.columns:

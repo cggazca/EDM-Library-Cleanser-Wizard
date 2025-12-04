@@ -19,12 +19,22 @@ try:
     from PyQt5.QtWidgets import (
         QWizardPage, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
         QTableWidget, QTableWidgetItem, QPushButton, QRadioButton,
-        QMessageBox, QCheckBox, QApplication
+        QMessageBox, QCheckBox, QApplication, QDialog, QDialogButtonBox,
+        QLineEdit, QFormLayout
     )
     from PyQt5.QtCore import Qt
     from PyQt5.QtGui import QColor
 except ImportError:
     print("Error: PyQt5 is required. Install it with: pip install PyQt5")
+
+try:
+    from edm_wizard.utils.xml_generation import create_mfg_xml, create_mfgpn_xml
+    from edm_wizard.utils.constants import DEFAULT_PROJECT_NAME, DEFAULT_CATALOG
+    XML_AVAILABLE = True
+except ImportError:
+    XML_AVAILABLE = False
+    DEFAULT_PROJECT_NAME = "VarTrainingLab"
+    DEFAULT_CATALOG = "VV"
 
 
 class ComparisonPage(QWizardPage):
@@ -199,35 +209,51 @@ class ComparisonPage(QWizardPage):
             self.syncing_scroll = False
 
     def initializePage(self):
-        """Initialize by loading Combined and Combined_New sheets"""
-        # Get the output Excel file path from ColumnMappingPage
+        """Initialize by loading Combined from source and Combined_New from normalized output"""
+        # Get the column mapping page for file paths
         column_mapping_page = self.wizard().page(2)
 
+        # Get original (source) Excel file path
         if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
-            self.summary_label.setText("Output Excel file not found. Please go back and complete Step 2.")
+            self.summary_label.setText("Source Excel file not found. Please go back and complete Step 2.")
             return
 
-        excel_path = column_mapping_page.output_excel_path
+        source_excel_path = column_mapping_page.output_excel_path
 
-        if not os.path.exists(excel_path):
-            self.summary_label.setText(f"Excel file not found: {excel_path}")
+        if not os.path.exists(source_excel_path):
+            self.summary_label.setText(f"Source Excel file not found: {source_excel_path}")
             return
+
+        # Get normalized (updated) Excel file path
+        updated_excel_path = getattr(column_mapping_page, 'updated_excel_path', None)
 
         try:
-            # Load Combined (original) sheet
-            if 'Combined' in pd.ExcelFile(excel_path).sheet_names:
-                self.original_df = pd.read_excel(excel_path, sheet_name='Combined')
+            # Load Combined (original) sheet from source file
+            if 'Combined' in pd.ExcelFile(source_excel_path).sheet_names:
+                self.original_df = pd.read_excel(source_excel_path, sheet_name='Combined')
             else:
-                self.summary_label.setText("'Combined' sheet not found in Excel file")
+                self.summary_label.setText("'Combined' sheet not found in source Excel file")
                 return
 
-            # Load Combined_New (after changes) sheet
-            if 'Combined_New' in pd.ExcelFile(excel_path).sheet_names:
-                self.new_df = pd.read_excel(excel_path, sheet_name='Combined_New')
+            # Load Combined_New (after changes) sheet from normalized output file
+            if updated_excel_path and os.path.exists(updated_excel_path):
+                if 'Combined_New' in pd.ExcelFile(updated_excel_path).sheet_names:
+                    self.new_df = pd.read_excel(updated_excel_path, sheet_name='Combined_New')
+                else:
+                    # Fallback: try Combined sheet from updated file
+                    if 'Combined' in pd.ExcelFile(updated_excel_path).sheet_names:
+                        self.new_df = pd.read_excel(updated_excel_path, sheet_name='Combined')
+                    else:
+                        self.new_df = self.original_df.copy()
+                        self.summary_label.setText("'Combined_New' sheet not found in normalized file - showing original data only")
             else:
-                # If Combined_New doesn't exist yet, use Combined as placeholder
+                # If no updated file exists, use original as placeholder
                 self.new_df = self.original_df.copy()
-                self.summary_label.setText("'Combined_New' sheet not found - showing original data only")
+                self.summary_label.setText("Normalized output file not found - showing original data only")
+
+            # Store paths for writeback
+            self.source_excel_path = source_excel_path
+            self.updated_excel_path = updated_excel_path
 
             # Build comparison
             self.build_comparison()
@@ -498,13 +524,16 @@ class ComparisonPage(QWizardPage):
                 QMessageBox.warning(self, "Error", "Search results not found. Please complete the review step first.")
                 return
 
-            # Get column mapping page to get the source file
-            column_mapping_page = self.wizard().page(2)
-            if not hasattr(column_mapping_page, 'data_source_file') or not column_mapping_page.data_source_file:
-                QMessageBox.warning(self, "Error", "Source Excel file not found. Cannot write back changes.")
-                return
-
-            source_file = Path(column_mapping_page.data_source_file)
+            # Use the source file path stored during initializePage
+            if not hasattr(self, 'source_excel_path') or not self.source_excel_path:
+                # Fallback to column_mapping_page
+                column_mapping_page = self.wizard().page(2)
+                if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
+                    QMessageBox.warning(self, "Error", "Source Excel file not found. Cannot write back changes.")
+                    return
+                source_file = Path(column_mapping_page.output_excel_path)
+            else:
+                source_file = Path(self.source_excel_path)
             if not source_file.exists():
                 QMessageBox.warning(self, "Error", f"Source file not found:\n{source_file}")
                 return
@@ -708,3 +737,298 @@ class ComparisonPage(QWizardPage):
                 "Writeback Error",
                 f"Failed to write back to source file:\n\n{str(e)}\n\nDetails:\n{error_details}"
             )
+
+    def validatePage(self):
+        """Override to show export dialog instead of closing the wizard"""
+        # Create export dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Export Normalized Data")
+        dialog.setMinimumWidth(500)
+
+        layout = QVBoxLayout(dialog)
+
+        # Info label
+        info_label = QLabel(
+            "<b>Export your normalized data:</b><br>"
+            "Choose export format(s) for your finished data with all normalizations applied."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+
+        # XML Settings
+        xml_group = QGroupBox("XML Export Settings")
+        xml_form = QFormLayout()
+
+        self.project_name_input = QLineEdit(DEFAULT_PROJECT_NAME)
+        xml_form.addRow("Project Name:", self.project_name_input)
+
+        self.catalog_input = QLineEdit(DEFAULT_CATALOG)
+        xml_form.addRow("Catalog:", self.catalog_input)
+
+        xml_group.setLayout(xml_form)
+        layout.addWidget(xml_group)
+
+        # Export buttons - Data formats
+        data_group = QGroupBox("📊 Data Export")
+        data_layout = QHBoxLayout()
+
+        excel_btn = QPushButton("Export Excel\n(.xlsx)")
+        excel_btn.setStyleSheet("QPushButton { padding: 15px; font-size: 11pt; }")
+        excel_btn.setToolTip("Export normalized data as Excel workbook")
+        excel_btn.clicked.connect(lambda: self._do_export_normalized_excel(dialog))
+        data_layout.addWidget(excel_btn)
+
+        csv_btn = QPushButton("Export CSV\n(.csv)")
+        csv_btn.setStyleSheet("QPushButton { padding: 15px; font-size: 11pt; }")
+        csv_btn.setToolTip("Export normalized data as CSV (UTF-8)")
+        csv_btn.clicked.connect(lambda: self._do_export_normalized_csv(dialog))
+        data_layout.addWidget(csv_btn)
+
+        data_group.setLayout(data_layout)
+        layout.addWidget(data_group)
+
+        # Export buttons - XML formats
+        xml_btn_group = QGroupBox("📝 XML Export (for EDM Library Creator)")
+        xml_layout = QHBoxLayout()
+
+        mfg_xml_btn = QPushButton("Export MFG XML\n(Manufacturers)")
+        mfg_xml_btn.setStyleSheet("QPushButton { padding: 15px; font-size: 11pt; }")
+        mfg_xml_btn.setToolTip("Export unique manufacturers as XML (Class 090)")
+        mfg_xml_btn.clicked.connect(lambda: self._do_export_mfg_xml(dialog))
+        if not XML_AVAILABLE:
+            mfg_xml_btn.setEnabled(False)
+            mfg_xml_btn.setToolTip("XML export not available")
+        xml_layout.addWidget(mfg_xml_btn)
+
+        mfgpn_xml_btn = QPushButton("Export MFG PN XML\n(Part Numbers)")
+        mfgpn_xml_btn.setStyleSheet("QPushButton { padding: 15px; font-size: 11pt; }")
+        mfgpn_xml_btn.setToolTip("Export MFG:PN pairs as XML (Class 060)")
+        mfgpn_xml_btn.clicked.connect(lambda: self._do_export_mfgpn_xml(dialog))
+        if not XML_AVAILABLE:
+            mfgpn_xml_btn.setEnabled(False)
+            mfgpn_xml_btn.setToolTip("XML export not available")
+        xml_layout.addWidget(mfgpn_xml_btn)
+
+        both_xml_btn = QPushButton("Export Both XMLs")
+        both_xml_btn.setStyleSheet("QPushButton { padding: 15px; font-size: 11pt; background-color: #4CAF50; color: white; }")
+        both_xml_btn.setToolTip("Export both MFG and MFG PN XML files")
+        both_xml_btn.clicked.connect(lambda: self._do_export_both_xml(dialog))
+        if not XML_AVAILABLE:
+            both_xml_btn.setEnabled(False)
+            both_xml_btn.setToolTip("XML export not available")
+        xml_layout.addWidget(both_xml_btn)
+
+        xml_btn_group.setLayout(xml_layout)
+        layout.addWidget(xml_btn_group)
+
+        # Status label
+        self.dialog_status = QLabel("")
+        self.dialog_status.setWordWrap(True)
+        self.dialog_status.setStyleSheet("padding: 10px; background-color: #f0f0f0; border-radius: 5px;")
+        layout.addWidget(self.dialog_status)
+
+        # Close buttons
+        close_layout = QHBoxLayout()
+        close_layout.addStretch()
+
+        cancel_btn = QPushButton("Continue Editing")
+        cancel_btn.clicked.connect(dialog.reject)
+        close_layout.addWidget(cancel_btn)
+
+        close_btn = QPushButton("Close Wizard")
+        close_btn.setStyleSheet("QPushButton { background-color: #2196F3; color: white; padding: 8px 16px; }")
+        close_btn.clicked.connect(dialog.accept)
+        close_layout.addWidget(close_btn)
+
+        layout.addLayout(close_layout)
+
+        # Show dialog
+        result = dialog.exec_()
+
+        # Only close wizard if user clicked "Close Wizard"
+        return result == QDialog.Accepted
+
+    def _get_output_folder(self):
+        """Get output folder path"""
+        start_page = self.wizard().page(0)
+        return start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
+
+    def _do_export_normalized_excel(self, dialog):
+        """Export normalized data as Excel"""
+        try:
+            output_folder = self._get_output_folder()
+            if not output_folder:
+                self.dialog_status.setText("❌ Output folder not configured")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            if self.new_df is None or self.new_df.empty:
+                self.dialog_status.setText("❌ No normalized data to export")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            excel_path = Path(output_folder) / f"Normalized_Export_{timestamp}.xlsx"
+
+            self.new_df.to_excel(excel_path, index=False, sheet_name='Normalized_Data', engine='xlsxwriter')
+
+            self.dialog_status.setText(f"✓ Exported: {excel_path.name}")
+            self.dialog_status.setStyleSheet("color: green; padding: 10px; background-color: #f0f0f0;")
+
+        except Exception as e:
+            self.dialog_status.setText(f"❌ Export failed: {str(e)}")
+            self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+
+    def _do_export_normalized_csv(self, dialog):
+        """Export normalized data as CSV (UTF-8)"""
+        try:
+            output_folder = self._get_output_folder()
+            if not output_folder:
+                self.dialog_status.setText("❌ Output folder not configured")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            if self.new_df is None or self.new_df.empty:
+                self.dialog_status.setText("❌ No normalized data to export")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            csv_path = Path(output_folder) / f"Normalized_Export_{timestamp}.csv"
+
+            self.new_df.to_csv(csv_path, index=False, encoding='utf-8')
+
+            self.dialog_status.setText(f"✓ Exported: {csv_path.name}")
+            self.dialog_status.setStyleSheet("color: green; padding: 10px; background-color: #f0f0f0;")
+
+        except Exception as e:
+            self.dialog_status.setText(f"❌ Export failed: {str(e)}")
+            self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+
+    def _do_export_mfg_xml(self, dialog):
+        """Export MFG XML (manufacturers)"""
+        try:
+            output_folder = self._get_output_folder()
+            if not output_folder:
+                self.dialog_status.setText("❌ Output folder not configured")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            if self.new_df is None or 'MFG' not in self.new_df.columns:
+                self.dialog_status.setText("❌ No MFG data to export")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            project_name = self.project_name_input.text().strip() or DEFAULT_PROJECT_NAME
+            catalog = self.catalog_input.text().strip() or DEFAULT_CATALOG
+
+            # Get unique manufacturers
+            manufacturers = self.new_df['MFG'].dropna().unique().tolist()
+            manufacturers = [m for m in manufacturers if str(m).strip()]
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            xml_path = Path(output_folder) / f"MFG_{timestamp}.xml"
+
+            count = create_mfg_xml(manufacturers, str(xml_path), project_name, catalog)
+
+            self.dialog_status.setText(f"✓ Exported {count} manufacturers: {xml_path.name}")
+            self.dialog_status.setStyleSheet("color: green; padding: 10px; background-color: #f0f0f0;")
+
+        except Exception as e:
+            self.dialog_status.setText(f"❌ Export failed: {str(e)}")
+            self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+
+    def _do_export_mfgpn_xml(self, dialog):
+        """Export MFG PN XML (part numbers)"""
+        try:
+            output_folder = self._get_output_folder()
+            if not output_folder:
+                self.dialog_status.setText("❌ Output folder not configured")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            if self.new_df is None or 'MFG' not in self.new_df.columns or 'MFG_PN' not in self.new_df.columns:
+                self.dialog_status.setText("❌ No MFG/MFG_PN data to export")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            project_name = self.project_name_input.text().strip() or DEFAULT_PROJECT_NAME
+            catalog = self.catalog_input.text().strip() or DEFAULT_CATALOG
+
+            # Build MFG PN data
+            mfgpn_data = []
+            for _, row in self.new_df.iterrows():
+                mfg = str(row.get('MFG', '')).strip()
+                mfg_pn = str(row.get('MFG_PN', '')).strip()
+                description = str(row.get('Description', '')).strip() if 'Description' in self.new_df.columns else ''
+
+                if mfg and mfg_pn:
+                    mfgpn_data.append({
+                        'MFG': mfg,
+                        'MFG_PN': mfg_pn,
+                        'Description': description
+                    })
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            xml_path = Path(output_folder) / f"MFGPN_{timestamp}.xml"
+
+            count = create_mfgpn_xml(mfgpn_data, str(xml_path), project_name, catalog)
+
+            self.dialog_status.setText(f"✓ Exported {count} part numbers: {xml_path.name}")
+            self.dialog_status.setStyleSheet("color: green; padding: 10px; background-color: #f0f0f0;")
+
+        except Exception as e:
+            self.dialog_status.setText(f"❌ Export failed: {str(e)}")
+            self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+
+    def _do_export_both_xml(self, dialog):
+        """Export both MFG and MFG PN XMLs"""
+        try:
+            output_folder = self._get_output_folder()
+            if not output_folder:
+                self.dialog_status.setText("❌ Output folder not configured")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            if self.new_df is None or 'MFG' not in self.new_df.columns or 'MFG_PN' not in self.new_df.columns:
+                self.dialog_status.setText("❌ No MFG/MFG_PN data to export")
+                self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")
+                return
+
+            project_name = self.project_name_input.text().strip() or DEFAULT_PROJECT_NAME
+            catalog = self.catalog_input.text().strip() or DEFAULT_CATALOG
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Export MFG XML
+            manufacturers = self.new_df['MFG'].dropna().unique().tolist()
+            manufacturers = [m for m in manufacturers if str(m).strip()]
+            mfg_xml_path = Path(output_folder) / f"MFG_{timestamp}.xml"
+            mfg_count = create_mfg_xml(manufacturers, str(mfg_xml_path), project_name, catalog)
+
+            # Export MFG PN XML
+            mfgpn_data = []
+            for _, row in self.new_df.iterrows():
+                mfg = str(row.get('MFG', '')).strip()
+                mfg_pn = str(row.get('MFG_PN', '')).strip()
+                description = str(row.get('Description', '')).strip() if 'Description' in self.new_df.columns else ''
+
+                if mfg and mfg_pn:
+                    mfgpn_data.append({
+                        'MFG': mfg,
+                        'MFG_PN': mfg_pn,
+                        'Description': description
+                    })
+
+            mfgpn_xml_path = Path(output_folder) / f"MFGPN_{timestamp}.xml"
+            mfgpn_count = create_mfgpn_xml(mfgpn_data, str(mfgpn_xml_path), project_name, catalog)
+
+            self.dialog_status.setText(
+                f"✓ Exported:\n"
+                f"  • {mfg_count} manufacturers: {mfg_xml_path.name}\n"
+                f"  • {mfgpn_count} part numbers: {mfgpn_xml_path.name}"
+            )
+            self.dialog_status.setStyleSheet("color: green; padding: 10px; background-color: #f0f0f0;")
+
+        except Exception as e:
+            self.dialog_status.setText(f"❌ Export failed: {str(e)}")
+            self.dialog_status.setStyleSheet("color: red; padding: 10px; background-color: #f0f0f0;")

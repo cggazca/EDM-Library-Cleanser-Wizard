@@ -40,7 +40,7 @@ class DataSourcePage(QWizardPage):
         # File browser
         browser_layout = QHBoxLayout()
         self.file_path = QLineEdit()
-        self.file_path.setPlaceholderText("Select Access DB (.mdb/.accdb), SQLite DB (.db/.sqlite/.sqlite3), or Excel (.xlsx/.xls)...")
+        self.file_path.setPlaceholderText("Select Access DB (.mdb/.accdb), SQLite DB (.db/.sqlite/.sqlite3), Excel (.xlsx/.xls), or CSV (.csv)...")
         self.file_path.textChanged.connect(self.on_file_selected)
 
         browse_button = QPushButton("Browse...")
@@ -111,10 +111,11 @@ class DataSourcePage(QWizardPage):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Data File",
             "",
-            "All Supported Files (*.mdb *.accdb *.db *.sqlite *.sqlite3 *.xlsx *.xls);;"
+            "All Supported Files (*.mdb *.accdb *.db *.sqlite *.sqlite3 *.xlsx *.xls *.csv);;"
             "Access Database (*.mdb *.accdb);;"
             "SQLite Database (*.db *.sqlite *.sqlite3);;"
             "Excel Files (*.xlsx *.xls);;"
+            "CSV Files (*.csv);;"
             "All Files (*.*)"
         )
         if file_path:
@@ -153,6 +154,13 @@ class DataSourcePage(QWizardPage):
             self.action_button.setText("Load Excel")
             self.action_button.setEnabled(True)
 
+        elif file_ext == '.csv':
+            self.detected_file_type = 'csv'
+            self.file_type_label.setText("📋 CSV File")
+            self.file_type_label.setStyleSheet("font-weight: bold; color: #9C27B0;")
+            self.action_button.setText("Load CSV")
+            self.action_button.setEnabled(True)
+
         else:
             self.detected_file_type = None
             self.file_type_label.setText("❌ Unsupported File Type")
@@ -171,6 +179,8 @@ class DataSourcePage(QWizardPage):
             self.export_database()
         elif self.detected_file_type == 'excel':
             self.load_excel_preview(file_path)
+        elif self.detected_file_type == 'csv':
+            self.load_csv_preview(file_path)
 
     def export_database(self):
         """Export database (Access or SQLite) to Excel using detected file type"""
@@ -276,6 +286,56 @@ class DataSourcePage(QWizardPage):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load Excel file: {str(e)}")
 
+    def load_csv_preview(self, csv_path):
+        """Load and preview CSV file, converting it to Excel in output folder"""
+        try:
+            # Get output folder from StartPage
+            start_page = self.wizard().page(0)
+            output_folder = start_page.output_folder_input.text() if hasattr(start_page, 'output_folder_input') else None
+
+            if not output_folder or not os.path.exists(output_folder):
+                QMessageBox.warning(self, "No Output Folder",
+                                   "Output folder not set. Please go back to the Welcome page and select an output folder.")
+                return
+
+            # Load the CSV file
+            # Try different encodings if utf-8 fails
+            try:
+                df = pd.read_csv(csv_path, encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(csv_path, encoding='latin-1')
+                except UnicodeDecodeError:
+                    df = pd.read_csv(csv_path, encoding='cp1252')
+
+            # Use filename without extension as sheet name
+            sheet_name = Path(csv_path).stem
+            # Clean sheet name for Excel compatibility
+            sheet_name = sheet_name[:31]  # Excel max sheet name length
+            for char in ['\\', '/', '*', '?', ':', '[', ']']:
+                sheet_name = sheet_name.replace(char, '_')
+
+            self.dataframes = {sheet_name: df}
+
+            # Convert to Excel in output folder
+            base_name = Path(csv_path).stem
+            output_excel = os.path.join(output_folder, f"{base_name}.xlsx")
+
+            # Write to Excel
+            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            # Store the output path
+            self.exported_excel_path = output_excel
+
+            self.show_preview(self.dataframes)
+            self.completeChanged.emit()
+
+            QMessageBox.information(self, "CSV Loaded",
+                                   f"CSV file converted to Excel in output folder:\n{output_excel}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load CSV file: {str(e)}")
+
     def show_preview(self, dataframes):
         """Show preview of first 100 rows and populate sheet selector"""
         if not dataframes:
@@ -328,17 +388,17 @@ class DataSourcePage(QWizardPage):
         if self.detected_file_type in ['access', 'sqlite']:
             # Database files need to be exported first
             return self.exported_excel_path is not None
-        elif self.detected_file_type == 'excel':
-            # Excel files just need to be loaded
+        elif self.detected_file_type in ['excel', 'csv']:
+            # Excel and CSV files just need to be loaded
             return len(self.dataframes) > 0
         return False
 
     def get_excel_path(self):
         """Get the Excel file path"""
-        if self.detected_file_type in ['access', 'sqlite']:
+        if self.detected_file_type in ['access', 'sqlite', 'csv']:
             return self.exported_excel_path
         elif self.detected_file_type == 'excel':
-            return self.file_path.text()
+            return self.exported_excel_path  # Return the copied file in output folder
         return None
 
     def get_dataframes(self):

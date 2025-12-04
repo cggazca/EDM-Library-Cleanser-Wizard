@@ -4730,7 +4730,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
 
 
     def validatePage(self):
-        """Apply normalizations and create Combined_New sheet before proceeding"""
+        """Apply normalizations and create output file with Combined_New sheet"""
         try:
             # Get the combined data from Step 2
             column_mapping_page = self.wizard().page(2)
@@ -4738,12 +4738,24 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                 QMessageBox.warning(self, "No Data", "No combined data found from Step 2.")
                 return False
 
-            # Get the output Excel path
+            # Get the output Excel path (the working copy in output folder)
             if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
                 QMessageBox.warning(self, "No Output File", "Output Excel file not found.")
                 return False
 
-            output_excel = column_mapping_page.output_excel_path
+            source_excel = column_mapping_page.output_excel_path
+
+            # Get output folder from StartPage
+            start_page = self.wizard().page(0)
+            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
+
+            if not output_folder:
+                output_folder = os.path.dirname(source_excel)
+
+            # Create new output filename with _normalized suffix
+            source_basename = Path(source_excel).stem
+            normalized_filename = f"{source_basename}_normalized.xlsx"
+            output_excel = os.path.join(output_folder, normalized_filename)
 
             # Start with a copy of the combined data
             new_data = column_mapping_page.combined_data.copy()
@@ -4758,7 +4770,8 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                     # Get original values to find matching rows
                     original_pn = part_data.get('PartNumber', '')
                     original_mfg = part_data.get('ManufacturerName', '')
-                    match_type = part_data.get('match_type', '')
+                    # Use MatchStatus (correct field name from CSV)
+                    match_status = part_data.get('MatchStatus', '')
 
                     # Find matching rows in the data
                     mask = (new_data['MFG_PN'] == original_pn) & (new_data['MFG'] == original_mfg)
@@ -4766,7 +4779,7 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                         continue
 
                     # Handle "Found" (exact match) - use first match's external_id
-                    if match_type == 'Found':
+                    if match_status == 'Found':
                         matches = part_data.get('matches', [])
                         if matches and len(matches) > 0:
                             first_match = matches[0]
@@ -4833,21 +4846,19 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                                     new_data.loc[mask, 'MFG'] = canonical_mfg
                                     normalizations_applied += mask.sum()
 
-            # Write Combined_New sheet to the existing Excel file
-            # This allows the comparison page to load both "Combined" and "Combined_New" from the same file
+            # Write to a NEW output file (not modifying the source)
+            # This creates a separate normalized file in the output folder
             try:
-                # Load existing Excel file
-                excel_file = pd.ExcelFile(output_excel)
+                # Load existing sheets from source Excel file
+                excel_file = pd.ExcelFile(source_excel)
 
                 # Read all existing sheets
                 existing_sheets = {}
                 for sheet_name in excel_file.sheet_names:
-                    # Skip Combined_New if it already exists (we'll recreate it)
-                    if sheet_name != 'Combined_New':
-                        existing_sheets[sheet_name] = pd.read_excel(excel_file, sheet_name=sheet_name)
+                    existing_sheets[sheet_name] = pd.read_excel(excel_file, sheet_name=sheet_name)
 
-                # Write all sheets back including the new Combined_New sheet
-                with pd.ExcelWriter(output_excel, engine='openpyxl', mode='w') as writer:
+                # Write all sheets to the NEW output file including Combined_New
+                with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
                     # Write existing sheets first
                     for sheet_name, sheet_df in existing_sheets.items():
                         sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -4855,13 +4866,16 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
                     # Write the new Combined_New sheet with normalized data
                     new_data.to_excel(writer, sheet_name='Combined_New', index=False)
 
-                print(f"DEBUG: Added 'Combined_New' sheet to {output_excel}")
+                print(f"DEBUG: Created normalized output file: {output_excel}")
+
+                # Store the output path for comparison page
+                column_mapping_page.updated_excel_path = output_excel
 
             except Exception as e:
-                print(f"ERROR: Failed to write Combined_New sheet: {str(e)}")
+                print(f"ERROR: Failed to write output file: {str(e)}")
                 import traceback
                 traceback.print_exc()
-                QMessageBox.critical(self, "Error", f"Failed to save Combined_New sheet:\n{str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to save output file:\n{str(e)}")
                 return False
 
             # Store for comparison page (in memory)
@@ -4873,382 +4887,5 @@ IMPORTANT: Return ONLY valid JSON, no markdown, no other text."""
             QMessageBox.critical(self, "Error", f"Failed to apply changes: {str(e)}")
             return False
 
-
-class ComparisonPage(QWizardPage):
-    """Step 5: Side-by-Side Comparison - Beyond Compare Style"""
-
-    def __init__(self):
-        super().__init__()
-        self.setTitle("Step 5: Review Changes - Side-by-Side Comparison")
-        self.setSubTitle("Compare Original File vs Updated File")
-
-        layout = QVBoxLayout()
-
-        # Summary section
-        summary_group = QGroupBox("📊 Changes Summary")
-        summary_layout = QHBoxLayout()
-
-        self.summary_label = QLabel("No changes to display")
-        self.summary_label.setWordWrap(True)
-        summary_layout.addWidget(self.summary_label)
-
-        # Filter controls
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Show:"))
-
-        self.show_all_radio = QRadioButton("All Rows")
-        self.show_changes_radio = QRadioButton("Changes Only")
-        self.show_all_radio.setChecked(True)
-        self.show_all_radio.toggled.connect(self.apply_filter)
-        self.show_changes_radio.toggled.connect(self.apply_filter)
-
-        filter_layout.addWidget(self.show_all_radio)
-        filter_layout.addWidget(self.show_changes_radio)
-        filter_layout.addStretch()
-
-        summary_layout.addLayout(filter_layout)
-        summary_group.setLayout(summary_layout)
-        layout.addWidget(summary_group)
-
-        # Side-by-side comparison tables
-        comparison_layout = QHBoxLayout()
-
-        # Left table: Combined (Original)
-        left_group = QGroupBox("📄 Combined (Original)")
-        left_layout = QVBoxLayout()
-
-        self.left_table = QTableWidget()
-        self.left_table.setSortingEnabled(True)  # Enable sorting
-        self.left_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.left_table.setSelectionMode(QTableWidget.SingleSelection)
-        self.left_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.left_table.verticalScrollBar().valueChanged.connect(self.sync_scroll_right)
-
-        left_layout.addWidget(self.left_table)
-        left_group.setLayout(left_layout)
-        comparison_layout.addWidget(left_group)
-
-        # Right table: Updated Data (After Changes)
-        right_group = QGroupBox("📄 Updated Data (New File)")
-        right_layout = QVBoxLayout()
-
-        self.right_table = QTableWidget()
-        self.right_table.setSortingEnabled(True)  # Enable sorting
-        self.right_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.right_table.setSelectionMode(QTableWidget.SingleSelection)
-        self.right_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.right_table.verticalScrollBar().valueChanged.connect(self.sync_scroll_left)
-
-        right_layout.addWidget(self.right_table)
-        right_group.setLayout(right_layout)
-        comparison_layout.addWidget(right_group)
-
-        layout.addLayout(comparison_layout, stretch=1)
-
-        # Export options
-        export_group = QGroupBox("💾 Export Options")
-        export_layout = QVBoxLayout()
-
-        export_btn_layout = QHBoxLayout()
-
-        self.export_csv_btn = QPushButton("Export to CSV")
-        self.export_csv_btn.clicked.connect(self.export_to_csv)
-        export_btn_layout.addWidget(self.export_csv_btn)
-
-        self.export_excel_btn = QPushButton("Export to Excel")
-        self.export_excel_btn.clicked.connect(self.export_to_excel)
-        export_btn_layout.addWidget(self.export_excel_btn)
-
-        export_btn_layout.addStretch()
-        export_layout.addLayout(export_btn_layout)
-
-        self.export_status = QLabel("")
-        export_layout.addWidget(self.export_status)
-
-        export_group.setLayout(export_layout)
-        layout.addWidget(export_group)
-
-        self.setLayout(layout)
-
-        # Store data
-        self.original_df = None
-        self.new_df = None
-        self.all_rows = []
-        self.syncing_scroll = False  # Prevent scroll recursion
-
-    def sync_scroll_right(self, value):
-        """Sync right table scroll with left table"""
-        if not self.syncing_scroll:
-            self.syncing_scroll = True
-            self.right_table.verticalScrollBar().setValue(value)
-            self.syncing_scroll = False
-
-    def sync_scroll_left(self, value):
-        """Sync left table scroll with right table"""
-        if not self.syncing_scroll:
-            self.syncing_scroll = True
-            self.left_table.verticalScrollBar().setValue(value)
-            self.syncing_scroll = False
-
-    def initializePage(self):
-        """Initialize by loading Combined and Combined_New sheets"""
-        # Get the output Excel file path from ColumnMappingPage
-        column_mapping_page = self.wizard().page(2)
-
-        if not hasattr(column_mapping_page, 'output_excel_path') or not column_mapping_page.output_excel_path:
-            self.summary_label.setText("❌ Output Excel file not found. Please go back and complete Step 2.")
-            return
-
-        excel_path = column_mapping_page.output_excel_path
-
-        if not os.path.exists(excel_path):
-            self.summary_label.setText(f"❌ Excel file not found: {excel_path}")
-            return
-
-        try:
-            # Load Combined (original) sheet from ORIGINAL file
-            if 'Combined' in pd.ExcelFile(excel_path).sheet_names:
-                self.original_df = pd.read_excel(excel_path, sheet_name='Combined')
-            else:
-                self.summary_label.setText("❌ 'Combined' sheet not found in original Excel file")
-                return
-
-            # Load Combined (new) sheet from UPDATED file
-            if hasattr(column_mapping_page, 'updated_excel_path') and os.path.exists(column_mapping_page.updated_excel_path):
-                updated_path = column_mapping_page.updated_excel_path
-                if 'Combined' in pd.ExcelFile(updated_path).sheet_names:
-                    self.new_df = pd.read_excel(updated_path, sheet_name='Combined')
-                else:
-                    self.summary_label.setText(f"❌ 'Combined' sheet not found in updated file: {updated_path}")
-                    return
-            else:
-                # Fallback if updated file missing (shouldn't happen if Step 4 succeeded)
-                self.summary_label.setText("⚠ Updated file not found - showing original data only")
-                self.new_df = self.original_df.copy()
-
-            # Build comparison
-            self.build_comparison()
-
-        except Exception as e:
-            self.summary_label.setText(f"❌ Error loading data: {str(e)}")
-
-    def get_mapped_columns(self):
-        """Get only the mapped columns from Column Mapping step"""
-        # These are the standard column names after combination
-        mapped_columns = ['MFG', 'MFG_PN', 'Part_Number', 'Description', 'Source_Sheet']
-
-        # Only include columns that exist in the dataframes
-        available_columns = []
-        all_cols = set(self.original_df.columns) | set(self.new_df.columns)
-        for col in mapped_columns:
-            if col in all_cols:
-                available_columns.append(col)
-
-        return available_columns
-
-    def get_display_column_name(self, col):
-        """Convert internal column name to user-friendly display name"""
-        display_names = {
-            'MFG': 'MFG',
-            'MFG_PN': 'MFG PN',
-            'Part_Number': 'Part Number',
-            'Description': 'Description',
-            'Source_Sheet': 'Source Sheet'
-        }
-        return display_names.get(col, col)
-
-    def build_comparison(self):
-        """Build side-by-side comparison with Beyond Compare styling"""
-        if self.original_df is None or self.new_df is None:
-            return
-
-        # Get only the mapped columns to display
-        mapped_columns = self.get_mapped_columns()
-
-        # Ensure both DataFrames have the same columns (only mapped ones)
-        for col in mapped_columns:
-            if col not in self.original_df.columns:
-                self.original_df[col] = ""
-            if col not in self.new_df.columns:
-                self.new_df[col] = ""
-
-        # Filter to only show mapped columns
-        self.original_df = self.original_df[mapped_columns]
-        self.new_df = self.new_df[mapped_columns]
-
-        # Build row comparison data
-        self.all_rows = []
-        max_rows = max(len(self.original_df), len(self.new_df))
-
-        changed_count = 0
-        for i in range(max_rows):
-            row_changed = False
-            if i < len(self.original_df) and i < len(self.new_df):
-                # Compare each cell (only mapped columns)
-                for col in mapped_columns:
-                    old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
-                    new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
-                    if old_val != new_val:
-                        row_changed = True
-                        break
-            else:
-                row_changed = True  # Row exists in one but not the other
-
-            if row_changed:
-                changed_count += 1
-
-            self.all_rows.append({
-                'index': i,
-                'changed': row_changed
-            })
-
-        # Update summary
-        total = len(self.all_rows)
-        unchanged = total - changed_count
-        self.summary_label.setText(
-            f"<b>Total Rows:</b> {total} | "
-            f"<b>Changed:</b> {changed_count} ({changed_count/total*100:.1f}%) | "
-            f"<b>Unchanged:</b> {unchanged} ({unchanged/total*100:.1f}%)"
-        )
-
-        # Populate tables
-        self.populate_tables()
-
-    def populate_tables(self):
-        """Populate both tables with data and Beyond Compare style formatting"""
-        if self.original_df is None or self.new_df is None:
-            return
-
-        # Filter rows based on radio selection
-        if self.show_changes_radio.isChecked():
-            display_rows = [r for r in self.all_rows if r['changed']]
-        else:
-            display_rows = self.all_rows
-
-        # Set up columns (use only mapped columns)
-        columns = list(self.original_df.columns)
-        display_headers = [self.get_display_column_name(col) for col in columns]
-
-        self.left_table.setColumnCount(len(columns))
-        self.left_table.setHorizontalHeaderLabels(display_headers)
-        self.right_table.setColumnCount(len(columns))
-        self.right_table.setHorizontalHeaderLabels(display_headers)
-
-        # Set row counts
-        self.left_table.setRowCount(len(display_rows))
-        self.right_table.setRowCount(len(display_rows))
-
-        # Populate rows with Beyond Compare styling
-        for display_idx, row_info in enumerate(display_rows):
-            i = row_info['index']
-            row_changed = row_info['changed']
-
-            # Populate left table (original)
-            if i < len(self.original_df):
-                for col_idx, col in enumerate(columns):
-                    old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
-                    item = QTableWidgetItem(old_val)
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-
-                    # Compare with new value for cell-level highlighting
-                    if i < len(self.new_df):
-                        new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
-                        if old_val != new_val:
-                            # Cell changed - light red background, bold font
-                            item.setBackground(QColor(255, 200, 200))  # Light red
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-
-                    self.left_table.setItem(display_idx, col_idx, item)
-
-            # Populate right table (new)
-            if i < len(self.new_df):
-                for col_idx, col in enumerate(columns):
-                    new_val = str(self.new_df.iloc[i][col]) if pd.notna(self.new_df.iloc[i][col]) else ""
-                    item = QTableWidgetItem(new_val)
-                    item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-
-                    # Compare with old value for cell-level highlighting
-                    if i < len(self.original_df):
-                        old_val = str(self.original_df.iloc[i][col]) if pd.notna(self.original_df.iloc[i][col]) else ""
-                        if old_val != new_val:
-                            # Cell changed - light green background, bold font
-                            item.setBackground(QColor(200, 255, 200))  # Light green
-                            font = item.font()
-                            font.setBold(True)
-                            item.setFont(font)
-
-                    self.right_table.setItem(display_idx, col_idx, item)
-
-        # Resize columns to fit content
-        self.left_table.resizeColumnsToContents()
-        self.right_table.resizeColumnsToContents()
-
-    def apply_filter(self):
-        """Re-populate tables based on filter selection"""
-        self.populate_tables()
-
-    def export_to_csv(self):
-        """Export comparison to CSV"""
-        try:
-            start_page = self.wizard().page(0)
-            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
-
-            if not output_folder:
-                QMessageBox.warning(self, "Error", "Output folder not configured")
-                return
-
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            csv_path = Path(output_folder) / f"Comparison_{timestamp}.csv"
-
-            import csv
-            with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(['Part Number', 'Original MFG', 'New MFG', 'Change Type', 'Notes'])
-
-                for change in self.changes:
-                    writer.writerow([
-                        change['part_number'],
-                        change['original_mfg'],
-                        change['new_mfg'],
-                        change['change_type'],
-                        change['notes']
-                    ])
-
-            self.export_status.setText(f"✓ Exported to: {csv_path.name}")
-            self.export_status.setStyleSheet("color: green;")
-
-        except Exception as e:
-            self.export_status.setText(f"✗ Export failed: {str(e)}")
-            self.export_status.setStyleSheet("color: red;")
-
-    def export_to_excel(self):
-        """Export comparison to Excel"""
-        try:
-            start_page = self.wizard().page(0)
-            output_folder = start_page.get_output_folder() if hasattr(start_page, 'get_output_folder') else None
-
-            if not output_folder:
-                QMessageBox.warning(self, "Error", "Output folder not configured")
-                return
-
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            excel_path = Path(output_folder) / f"Comparison_{timestamp}.xlsx"
-
-            # Create DataFrame
-            df = pd.DataFrame(self.changes)
-            df.columns = ['Part Number', 'Original MFG', 'New MFG', 'Change Type', 'Notes']
-
-            # Write to Excel
-            df.to_excel(excel_path, index=False, engine='xlsxwriter')
-
-            self.export_status.setText(f"✓ Exported to: {excel_path.name}")
-            self.export_status.setStyleSheet("color: green;")
-
-        except Exception as e:
-            self.export_status.setText(f"✗ Export failed: {str(e)}")
-            self.export_status.setStyleSheet("color: red;")
+# Note: ComparisonPage is defined in comparison_page.py and imported via __init__.py
 
